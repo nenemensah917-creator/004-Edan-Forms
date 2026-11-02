@@ -110,6 +110,7 @@
 
   function renderGathering(item) {
     const card = element("article", "members__gather-card");
+    markContent(card, "gathering", item.id);
     const image = gatherImage(item);
     if (image) card.append(image);
     const copy = element("div", "members__gather-card-copy");
@@ -123,6 +124,7 @@
 
   function renderArchiveItem(item) {
     const article = element("article", "members__gather-archive-item");
+    markContent(article, "gathering", item.id);
     const image = gatherImage(item);
     if (image) article.append(image);
     const copy = element("div", "members__gather-archive-copy");
@@ -134,6 +136,7 @@
 
   function renderMoment(item) {
     const figure = element("figure", "members__gather-moment");
+    markContent(figure, "gathering", item.id);
     const image = gatherImage(item);
     if (image) figure.append(image);
     if (item.caption) figure.append(element("figcaption", "", item.caption));
@@ -142,6 +145,7 @@
 
   function renderFeaturedGathering(item) {
     gatherFeatured.hidden = false;
+    markContent(gatherFeatured, "gathering", item.id);
     featuredGatherMedia.replaceChildren();
     const image = gatherImage(item);
     if (image) featuredGatherMedia.append(image);
@@ -159,6 +163,7 @@
 
   function renderVideo(item) {
     const figure = element("figure", "members__video");
+    markContent(figure, "bonus_video", item.id);
 
     if (item.video_path) {
       const video = element("video");
@@ -184,6 +189,37 @@
     }
 
     return figure;
+  }
+
+  function markContent(node, contentType, contentId) {
+    node.dataset.contentType = contentType;
+    node.dataset.contentId = contentId;
+  }
+
+  async function recordView(client, contentType, contentId) {
+    const key = `member-content-view:${contentType}:${contentId}`;
+    if (sessionStorage.getItem(key)) return;
+    const { error } = await client.from("member_content_views").insert({
+      content_type: contentType,
+      content_id: contentId
+    });
+    if (error) {
+      console.error("Member activity could not be recorded:", error);
+      return;
+    }
+    sessionStorage.setItem(key, "1");
+  }
+
+  function trackVisibleContent(client) {
+    const nodes = document.querySelectorAll("[data-content-type][data-content-id]");
+    const observer = new IntersectionObserver(entries => {
+      entries.filter(entry => entry.isIntersecting).forEach(entry => {
+        const node = entry.target;
+        observer.unobserve(node);
+        recordView(client, node.dataset.contentType, node.dataset.contentId);
+      });
+    }, { threshold: 0.5 });
+    nodes.forEach(node => observer.observe(node));
   }
 
   function showList(listEl, emptyEl, items, render) {
@@ -277,6 +313,7 @@
 
   function renderProject(item) {
     const article = element("article", "members__process-project");
+    markContent(article, "process", item.id);
     const image = processImage(item.image_path, item.title);
     if (image) article.append(image);
 
@@ -293,6 +330,7 @@
 
   function renderUpdate(item) {
     const article = element("article", "members__process-update");
+    markContent(article, "process", item.id);
     const image = processImage(item.image_path, item.title);
     if (image) article.append(image);
 
@@ -305,8 +343,9 @@
     return article;
   }
 
-  function renderVideo(item) {
+  function renderProcessVideo(item) {
     const figure = element("article", "members__process-video");
+    markContent(figure, "process", item.id);
     const media = element("div", "members__process-video-media");
     const image = processImage(item.poster_path || item.image_path, item.title);
     if (image) media.append(image);
@@ -322,6 +361,7 @@
 
   function renderFeatured(item) {
     processFeatured.hidden = false;
+    markContent(processFeatured, "process", item.id);
     featuredProcessMedia.replaceChildren();
     const image = processImage(item.image_path, item.title);
     if (image) featuredProcessMedia.append(image);
@@ -344,6 +384,7 @@
 
   function renderResearch(item) {
     const article = element("article", "members__research-item");
+    markContent(article, "research", item.id);
 
     if (item.image_path) {
       const image = element("img");
@@ -405,7 +446,7 @@
     if (featured) renderFeatured(featured);
     processProjectList.replaceChildren(...projects.filter(item => item.id !== featured?.id).map(renderProject));
     processUpdateList.replaceChildren(...updates.map(renderUpdate));
-    processVideoList.replaceChildren(...videos.map(renderVideo));
+    processVideoList.replaceChildren(...videos.map(renderProcessVideo));
   }
 
   async function loadResearch(client) {
@@ -458,6 +499,7 @@
       console.error("In process failed to load:", results[3].reason);
       processEmpty.textContent = "We couldn't load this section. Please refresh the page.";
     }
+    trackVisibleContent(client);
   }
 
   init().catch(error => {

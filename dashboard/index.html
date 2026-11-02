@@ -214,11 +214,25 @@
           <span class="eyebrow">members page</span>
           <h2 id="memberSettingsHeading">Page settings</h2>
           <p class="admin__hint">Update the welcome area, section introductions, images, and benefits shown to active members. Use paths such as /images/tree.jpg.</p>
+          <a class="admin__button" href="/members/" target="_blank" rel="noopener">Preview Members page</a>
           <form id="memberSettingsForm" class="admin__settings-form">
             <div id="memberSettingsFields" class="admin__settings-fields"></div>
             <p id="memberSettingsError" class="admin__review-error" role="status"></p>
             <button id="memberSettingsSave" class="admin__button admin__button--solid" type="submit">Save page settings</button>
           </form>
+        </article>
+
+        <article id="member-insights" class="admin__card admin__card--full" aria-labelledby="memberInsightsHeading">
+          <span class="eyebrow">member activity</span>
+          <h2 id="memberInsightsHeading">What members are viewing</h2>
+          <p class="admin__hint">Published content is ranked by recorded member views. Individual member identities are not shown.</p>
+          <p id="memberInsightsError" class="admin__review-error" role="alert" hidden></p>
+          <div class="admin__table-wrap">
+            <table class="admin__table">
+              <thead><tr><th>Area</th><th>Content</th><th>Views</th><th>Last viewed</th></tr></thead>
+              <tbody id="memberInsightsBody"></tbody>
+            </table>
+          </div>
         </article>
 
         <article id="content" class="admin__card admin__card--full" aria-labelledby="contentHeading">
@@ -256,6 +270,7 @@
         <a class="admin__tabbar-link" href="#bookings" data-section="bookings">Bookings</a>
         <a class="admin__tabbar-link" href="#appointments" data-section="appointments">Appointments</a>
         <a class="admin__tabbar-link" href="#member-settings" data-section="member-settings">Page settings</a>
+        <a class="admin__tabbar-link" href="#member-insights" data-section="member-insights">Insights</a>
         <a class="admin__tabbar-link" href="#content" data-section="content">Content</a>
       </nav>
 

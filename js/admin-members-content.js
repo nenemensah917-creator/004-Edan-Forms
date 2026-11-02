@@ -1,10 +1,11 @@
 import { supabase } from "./supabase-client.js";
 import { createActionCell, createRow, createTableButton, renderEmptyRow, setMessageText } from "./admin-table.js";
-import { IMAGE_ACCEPT, uploadSiteImage } from "./admin-upload.js";
+import { IMAGE_ACCEPT, VIDEO_ACCEPT, uploadSiteImage, uploadSiteVideo } from "./admin-upload.js";
 
 const ITEM_LIMIT = 100;
 const IMAGE_REFERENCE_PATTERN = /^(\/images\/[^/\\]+|https:\/\/\S+)$/;
 const HTTPS_PATTERN = /^https:\/\/\S+$/;
+const MEDIA_REFERENCE_PATTERN = /^(\/(images|videos)\/[^/\\]+|https:\/\/\S+)$/;
 
 const CONTENT_TYPES = {
   gatherings: {
@@ -51,7 +52,7 @@ const CONTENT_TYPES = {
       { name: "updated_label", label: "Date or update label", type: "text", maxLength: 80 },
       { name: "progress_label", label: "Progress label", type: "text", maxLength: 80 },
       { name: "duration_label", label: "Video duration", type: "text", maxLength: 40 },
-      { name: "video_path", label: "Video file path", type: "text", maxLength: 300 },
+      { name: "video_path", label: "Video file or URL", type: "video", maxLength: 300 },
       { name: "link_url", label: "Project link (https:// or #anchor)", type: "text", maxLength: 300 },
       { name: "link_label", label: "Project link label", type: "text", maxLength: 80 },
       { name: "is_featured", label: "Use as featured project", type: "checkbox" },
@@ -64,7 +65,7 @@ const CONTENT_TYPES = {
     fields: [
       { name: "title", label: "Title", type: "text", required: true, maxLength: 160 },
       { name: "description", label: "Description", type: "textarea", maxLength: 2000 },
-      { name: "video_path", label: "Video file path in the site-videos bucket", type: "text", maxLength: 300 },
+      { name: "video_path", label: "Video file or URL", type: "video", maxLength: 300 },
       { name: "poster_path", label: "Poster photo", type: "image" },
       { name: "sort_order", label: "Display order (lower first)", type: "number" }
     ]
@@ -151,6 +152,36 @@ function fieldValue(field, item) {
   return String(value);
 }
 
+function renderVideoField(field, value) {
+  const wrapper = document.createElement("div");
+  wrapper.className = "admin__image-field";
+  const current = document.createElement("input");
+  current.type = "text";
+  current.name = field.name;
+  current.className = "admin__file";
+  current.value = value;
+  current.placeholder = "Upload a video or enter an https:// URL";
+  const file = document.createElement("input");
+  file.type = "file";
+  file.className = "admin__file";
+  file.accept = VIDEO_ACCEPT;
+  file.dataset.videoField = field.name;
+  const preview = document.createElement("video");
+  preview.className = "admin__image-preview";
+  preview.controls = true;
+  preview.preload = "metadata";
+  preview.hidden = !value;
+  if (value) preview.src = value;
+  file.addEventListener("change", () => {
+    const selected = file.files?.[0];
+    if (!selected) return;
+    preview.src = URL.createObjectURL(selected);
+    preview.hidden = false;
+  });
+  wrapper.append(current, file, preview);
+  return wrapper;
+}
+
 function renderImageField(field, value) {
   const wrapper = document.createElement("div");
   wrapper.className = "admin__image-field";
@@ -195,6 +226,10 @@ function renderFields(config, item) {
     if (field.type === "image") {
       label.htmlFor = `content-${field.name}-file`;
       return [label, renderImageField(field, value)];
+    }
+    if (field.type === "video") {
+      label.htmlFor = `content-${field.name}`;
+      return [label, renderVideoField(field, value)];
     }
 
     label.htmlFor = `content-${field.name}`;
@@ -245,6 +280,11 @@ async function readFieldValue(field) {
     if (file) return uploadSiteImage(file);
     return contentFields.querySelector(`input[type="hidden"][name="${field.name}"]`).value;
   }
+  if (field.type === "video") {
+    const file = contentFields.querySelector(`input[type="file"][data-video-field="${field.name}"]`).files[0];
+    if (file) return uploadSiteVideo(file);
+    return contentFields.querySelector(`[name="${field.name}"]`).value.trim();
+  }
 
   const input = contentFields.querySelector(`[name="${field.name}"]`);
 
@@ -267,6 +307,9 @@ function validatePayload(config, payload) {
     const value = payload[field.name];
     if (field.type === "image" && value && !IMAGE_REFERENCE_PATTERN.test(value)) {
       return "That photo could not be used. Please upload it again.";
+    }
+    if (field.type === "video" && value && !MEDIA_REFERENCE_PATTERN.test(value)) {
+      return "Videos must be uploaded or use an https:// URL.";
     }
     if (field.type === "url" && value && !HTTPS_PATTERN.test(value)) {
       return "Links must start with https://.";

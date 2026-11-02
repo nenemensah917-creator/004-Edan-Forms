@@ -1,5 +1,6 @@
 import { supabase } from "./supabase-client.js";
 import { setMessageText } from "./admin-table.js";
+import { IMAGE_ACCEPT, uploadSiteImage } from "./admin-upload.js";
 
 const form = document.getElementById("memberSettingsForm");
 const fields = document.getElementById("memberSettingsFields");
@@ -61,8 +62,29 @@ function createField(name, label, type, value) {
   input.name = name;
   if (type === "textarea") input.rows = 3;
   input.value = value;
-  if (name.endsWith("_image_path")) input.placeholder = "/images/example.jpg";
-  wrapper.append(input);
+  if (!name.endsWith("_image_path")) {
+    wrapper.append(input);
+    return wrapper;
+  }
+
+  input.placeholder = "/images/example.jpg or an uploaded image URL";
+  const file = document.createElement("input");
+  file.className = "admin__file";
+  file.type = "file";
+  file.accept = IMAGE_ACCEPT;
+  file.dataset.settingsImage = name;
+  const preview = document.createElement("img");
+  preview.className = "admin__image-preview";
+  preview.alt = "Current image preview";
+  preview.hidden = !value;
+  if (value) preview.src = value;
+  file.addEventListener("change", () => {
+    const selected = file.files?.[0];
+    if (!selected) return;
+    preview.src = URL.createObjectURL(selected);
+    preview.hidden = false;
+  });
+  wrapper.append(input, file, preview);
   return wrapper;
 }
 
@@ -83,15 +105,22 @@ function renderFields(settings) {
   });
 }
 
-function readPayload() {
+async function readPayload() {
   const payload = {};
-  FIELD_GROUPS.flatMap(group => group.fields).forEach(([name]) => {
-    const input = fields.querySelector(`[name="${name}"]`);
-    const value = input?.value.trim() ?? "";
-    payload[name] = name === "benefits"
-      ? value.split("\n").map(item => item.trim()).filter(Boolean)
-      : value;
-  });
+  for (const group of FIELD_GROUPS) {
+    for (const [name] of group.fields) {
+      const input = fields.querySelector(`[name="${name}"]`);
+      const file = fields.querySelector(`input[type="file"][data-settings-image="${name}"]`);
+      if (file?.files?.[0]) {
+        payload[name] = await uploadSiteImage(file.files[0]);
+      } else {
+        const value = input?.value.trim() ?? "";
+        payload[name] = name === "benefits"
+          ? value.split("\n").map(item => item.trim()).filter(Boolean)
+          : value;
+      }
+    }
+  }
   return payload;
 }
 
@@ -105,7 +134,7 @@ export async function loadMemberPageSettings() {
     .maybeSingle();
 
   if (error || !data) {
-    setMessageText(errorMessage, error?.message ?? "Members page settings could not be loaded.");
+    setMessageText(errorMessage, "Members page settings could not be loaded.");
     return;
   }
 
@@ -117,14 +146,23 @@ form?.addEventListener("submit", async event => {
   saveButton.disabled = true;
   setMessageText(errorMessage, "");
 
+  let payload;
+  try {
+    payload = await readPayload();
+  } catch (error) {
+    setMessageText(errorMessage, "The image could not be uploaded. Please try again.");
+    saveButton.disabled = false;
+    return;
+  }
+
   const { error } = await supabase
     .from("member_page_settings")
-    .update({ ...readPayload(), updated_at: new Date().toISOString() })
+    .update({ ...payload, updated_at: new Date().toISOString() })
     .eq("id", "default");
 
   saveButton.disabled = false;
   if (error) {
-    setMessageText(errorMessage, `Members page settings could not be saved: ${error.message}`);
+    setMessageText(errorMessage, "Members page settings could not be saved.");
     return;
   }
 
