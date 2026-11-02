@@ -18,7 +18,7 @@ export async function loadKpis() {
   const { data, error } = await supabase.rpc("admin_dashboard_kpis");
 
   if (error || !isValidKpis(data)) {
-    setMessageText(kpiError, `Membership stats could not be loaded${error ? `: ${error.message}` : "."}`);
+    setMessageText(kpiError, "Membership stats could not be loaded. Please refresh the dashboard.");
     KPI_KEYS.forEach(key => setKpiValue(key, "—"));
     return;
   }

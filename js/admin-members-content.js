@@ -125,7 +125,7 @@ export async function loadMemberContent() {
     .limit(ITEM_LIMIT);
 
   if (error) {
-    setMessageText(contentError, `Entries could not be loaded: ${error.message}`);
+    setMessageText(contentError, "Entries could not be loaded. Please refresh the dashboard.");
     renderEmptyRow(contentBody, 5, "Entries could not be loaded.");
     return;
   }
@@ -334,7 +334,8 @@ async function saveEntry(event) {
   try {
     payload = await readPayload(config);
   } catch (error) {
-    setMessageText(contentFormError, error.message);
+    console.error("Content media upload failed:", error);
+    setMessageText(contentFormError, "The media could not be uploaded. Please try again.");
     contentSave.disabled = false;
     return;
   }
@@ -354,7 +355,7 @@ async function saveEntry(event) {
   contentSave.disabled = false;
 
   if (error || !data?.length) {
-    setMessageText(contentFormError, error?.message ?? "That entry could not be saved.");
+    setMessageText(contentFormError, "That entry could not be saved. Please try again.");
     return;
   }
 

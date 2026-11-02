@@ -152,7 +152,7 @@ async function exportMembers() {
   membersExportButton.disabled = false;
 
   if (error) {
-    setMessageText(membersError, `Members could not be exported: ${error.message}`);
+    setMessageText(membersError, "Members could not be exported. Please try again.");
     return;
   }
 
@@ -263,7 +263,7 @@ approveButton.addEventListener("click", async () => {
   setReviewBusy(false);
 
   if (error) {
-    setReviewError(error.message);
+    setReviewError("The application could not be approved. Please check the dates and try again.");
     return;
   }
 
@@ -291,7 +291,7 @@ rejectButton.addEventListener("click", async () => {
   setReviewBusy(false);
 
   if (error) {
-    setReviewError(error.message);
+    setReviewError("The application could not be rejected. Please try again.");
     return;
   }
 

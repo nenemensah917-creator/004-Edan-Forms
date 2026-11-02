@@ -57,8 +57,8 @@
 
   function setStatus(text) { statusEl.textContent = text; }
 
-  function formatDuration() {
-    return "Duration: TBD";
+  function formatDuration(minutes) {
+    return Number.isFinite(minutes) && minutes > 0 ? `${minutes} minutes` : "Duration to be confirmed";
   }
 
   // ── Step navigation ──────────────────────────────────────────────────────
@@ -164,36 +164,60 @@
 
   // ── Dates & slots ────────────────────────────────────────────────────────
 
+  let calendarMonth;
+
   function renderDates() {
     if (!dateSelect || !calendar) return;
 
-    const availableDates = new Set(slots.map(slot => new Date(slot.starts_at).toISOString().slice(0, 10)));
     const firstDate = new Date();
     firstDate.setHours(12, 0, 0, 0);
     const lastDate = new Date(firstDate);
     lastDate.setDate(lastDate.getDate() + 59);
-    const month = firstDate.getMonth();
-    const year = firstDate.getFullYear();
-    const monthLabel = new Intl.DateTimeFormat(undefined, { month: "long", year: "numeric" }).format(firstDate);
+    const firstMonth = new Date(firstDate.getFullYear(), firstDate.getMonth(), 1);
+    const lastMonth = new Date(lastDate.getFullYear(), lastDate.getMonth(), 1);
+    if (!calendarMonth || calendarMonth < firstMonth || calendarMonth > lastMonth) calendarMonth = firstMonth;
+
+    const availableDates = new Set(slots.map(slot => new Date(slot.starts_at).toISOString().slice(0, 10)));
+    const month = calendarMonth.getMonth();
+    const year = calendarMonth.getFullYear();
+    const monthLabel = new Intl.DateTimeFormat(undefined, { month: "long", year: "numeric" }).format(calendarMonth);
     const daysInMonth = new Date(year, month + 1, 0).getDate();
     const firstWeekday = new Date(year, month, 1).getDay();
     const heading = document.createElement("div");
     heading.className = "members__appt-calendar-heading";
-    heading.textContent = monthLabel;
+    const previous = document.createElement("button");
+    previous.type = "button";
+    previous.className = "members__appt-calendar-nav";
+    previous.textContent = "Previous";
+    previous.disabled = calendarMonth <= firstMonth;
+    previous.addEventListener("click", () => {
+      calendarMonth = new Date(year, month - 1, 1);
+      renderDates();
+    });
+    const label = document.createElement("strong");
+    label.textContent = monthLabel;
+    const next = document.createElement("button");
+    next.type = "button";
+    next.className = "members__appt-calendar-nav";
+    next.textContent = "Next";
+    next.disabled = calendarMonth >= lastMonth;
+    next.addEventListener("click", () => {
+      calendarMonth = new Date(year, month + 1, 1);
+      renderDates();
+    });
+    heading.append(previous, label, next);
 
     const weekdays = document.createElement("div");
     weekdays.className = "members__appt-calendar-weekdays";
     ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].forEach(day => {
-      const label = document.createElement("span");
-      label.textContent = day;
-      weekdays.append(label);
+      const weekday = document.createElement("span");
+      weekday.textContent = day;
+      weekdays.append(weekday);
     });
 
     const grid = document.createElement("div");
     grid.className = "members__appt-calendar-grid";
-    for (let index = 0; index < firstWeekday; index += 1) {
-      grid.append(document.createElement("span"));
-    }
+    for (let index = 0; index < firstWeekday; index += 1) grid.append(document.createElement("span"));
 
     dateSelect.replaceChildren(new Option("Choose a date", ""));
     for (let day = 1; day <= daysInMonth; day += 1) {
@@ -203,7 +227,7 @@
       button.type = "button";
       button.className = "members__appt-calendar-day";
       button.textContent = String(day);
-      button.disabled = !availableDates.has(value) || date > lastDate;
+      button.disabled = !availableDates.has(value) || date < firstDate || date > lastDate;
       button.setAttribute("aria-label", `${dateFormat.format(date)}${button.disabled ? ", unavailable" : ", available"}`);
       button.addEventListener("click", () => {
         dateSelect.value = value;
@@ -212,7 +236,7 @@
         renderTimeSlots();
       });
       grid.append(button);
-      if (availableDates.has(value)) dateSelect.append(new Option(dateFormat.format(date), value));
+      if (availableDates.has(value) && !button.disabled) dateSelect.append(new Option(dateFormat.format(date), value));
     }
 
     calendar.replaceChildren(heading, weekdays, grid);

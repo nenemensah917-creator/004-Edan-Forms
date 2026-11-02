@@ -118,7 +118,7 @@ export async function loadStayBookings() {
   const { data, error } = await query;
 
   if (error) {
-    setMessageText(bookingsError, `Bookings could not be loaded: ${error.message}`);
+    setMessageText(bookingsError, "Bookings could not be loaded. Please refresh the dashboard.");
     renderEmptyRow(bookingsBody, 9, "Bookings could not be loaded.");
     return;
   }
@@ -223,7 +223,7 @@ async function openBookingDetails(bookingId) {
 
   if (error || !data) {
     bookingDetails.replaceChildren();
-    setMessageText(bookingDetailError, error?.message ?? "That booking could not be found.");
+    setMessageText(bookingDetailError, "That booking could not be found. Please refresh and try again.");
     return;
   }
 
@@ -244,7 +244,7 @@ async function deleteBooking(button) {
     .select("id");
 
   if (error || !data.length) {
-    setMessageText(bookingsError, error?.message ?? "That booking could not be deleted.");
+    setMessageText(bookingsError, "That booking could not be deleted. Please try again.");
     button.disabled = false;
     return;
   }
@@ -259,7 +259,7 @@ async function runBookingAction(bookingId, rpcName, params) {
   const { error } = await supabase.rpc(rpcName, { p_booking_id: bookingId, ...params });
 
   if (error) {
-    setMessageText(bookingDetailError, error.message);
+    setMessageText(bookingDetailError, "That booking could not be updated. Please try again.");
     bookingActions.querySelectorAll("button").forEach(button => { button.disabled = false; });
     return;
   }
@@ -320,7 +320,7 @@ async function openManualBooking() {
     }));
     manualSubmit.disabled = false;
   } catch (error) {
-    setMessageText(manualError, error.message);
+    setMessageText(manualError, "Rooms could not be loaded. Please refresh and try again.");
   }
 }
 
@@ -352,7 +352,7 @@ async function saveManualBooking(event) {
   manualSubmit.disabled = false;
 
   if (error) {
-    setMessageText(manualError, error.message);
+    setMessageText(manualError, "The booking could not be saved. Please check the dates and try again.");
     return;
   }
 

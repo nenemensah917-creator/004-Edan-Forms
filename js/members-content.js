@@ -243,13 +243,12 @@
     const archive = items.filter(item => item.gathering_type === "past");
     const moments = items.filter(item => item.gathering_type === "moment");
 
-    if (!items.length) return;
-
-    gatheringEmpty.hidden = true;
-    if (featured) renderFeaturedGathering(featured);
+    gatheringEmpty.hidden = items.length > 0;
+    gatherFeatured.hidden = !featured;
     gatheringList.replaceChildren(...upcoming.map(renderGathering));
     gatherArchive.replaceChildren(...archive.map(renderArchiveItem));
     gatherMoments.replaceChildren(...moments.map(renderMoment));
+    if (featured) renderFeaturedGathering(featured);
   }
 
   async function loadBonusVideos(client) {
@@ -260,8 +259,6 @@
 
     if (error) throw error;
     const items = data || [];
-    if (!items.length) return;
-    videoEmpty.hidden = true;
     showList(videoList, videoEmpty, items, renderVideo);
   }
 
@@ -347,9 +344,19 @@
     const figure = element("article", "members__process-video");
     markContent(figure, "process", item.id);
     const media = element("div", "members__process-video-media");
-    const image = processImage(item.poster_path || item.image_path, item.title);
-    if (image) media.append(image);
-    media.append(element("span", "members__process-play", "▶"));
+    if (item.video_path) {
+      const video = element("video");
+      video.controls = true;
+      video.preload = "metadata";
+      video.playsInline = true;
+      video.src = item.video_path;
+      if (item.poster_path || item.image_path) video.poster = item.poster_path || item.image_path;
+      media.append(video);
+    } else {
+      const image = processImage(item.poster_path || item.image_path, item.title);
+      if (image) media.append(image);
+      media.append(element("span", "members__process-video-unavailable", "Video coming soon"));
+    }
     if (item.duration_label) media.append(element("span", "members__process-duration", item.duration_label));
     figure.append(media);
     const copy = element("div", "members__process-video-copy");
@@ -440,13 +447,12 @@
     const videos = items.filter(item => item.content_type === "video");
     const featured = projects.find(item => item.is_featured) || projects[0];
 
-    if (!items.length) return;
-
-    processEmpty.hidden = true;
-    if (featured) renderFeatured(featured);
+    processEmpty.hidden = items.length > 0;
+    processFeatured.hidden = !featured;
     processProjectList.replaceChildren(...projects.filter(item => item.id !== featured?.id).map(renderProject));
     processUpdateList.replaceChildren(...updates.map(renderUpdate));
     processVideoList.replaceChildren(...videos.map(renderProcessVideo));
+    if (featured) renderFeatured(featured);
   }
 
   async function loadResearch(client) {
@@ -489,6 +495,7 @@
     }
     if (results[1].status === "rejected") {
       console.error("Bonus videos failed to load:", results[1].reason);
+      videoEmpty.hidden = false;
       videoEmpty.textContent = "We couldn't load bonus videos. Please refresh the page.";
     }
     if (results[2].status === "rejected") {

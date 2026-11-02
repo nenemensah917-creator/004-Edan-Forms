@@ -151,7 +151,7 @@ roomForm.addEventListener("submit", async (event) => {
     try {
       imagePath = await uploadSiteImage(photo);
     } catch (uploadError) {
-      setMessageText(roomError, uploadError.message);
+      setMessageText(roomError, "The photo could not be uploaded. Please try again.");
       return;
     }
   }
@@ -161,7 +161,7 @@ roomForm.addEventListener("submit", async (event) => {
   if (error) {
     setMessageText(
       roomError,
-      error.code === "23505" ? "A room with that name already exists." : error.message
+      error.code === "23505" ? "A room with that name already exists." : "The room could not be added. Please try again."
     );
     return;
   }
@@ -197,7 +197,7 @@ roomsBody.addEventListener("click", async (event) => {
     .eq("id", button.dataset.roomId);
 
   if (error) {
-    setMessageText(roomError, error.message);
+    setMessageText(roomError, "The room status could not be changed. Please try again.");
     button.disabled = false;
     return;
   }
@@ -222,7 +222,7 @@ async function deleteRoom(button) {
       roomError,
       error.code === FOREIGN_KEY_VIOLATION
         ? "This room has bookings, so it cannot be deleted. Close it instead."
-        : error.message
+        : "This room could not be deleted. Please try again."
     );
     button.disabled = false;
     return;
@@ -260,7 +260,7 @@ roomPhotoInput.addEventListener("change", async () => {
       return;
     }
   } catch (uploadError) {
-    setMessageText(roomError, uploadError.message);
+    setMessageText(roomError, "The photo could not be uploaded. Please try again.");
     return;
   }
 
@@ -288,7 +288,7 @@ blockForm.addEventListener("submit", async (event) => {
   blockSubmit.disabled = false;
 
   if (error) {
-    setMessageText(blockError, error.message);
+    setMessageText(blockError, "Those dates could not be blocked. Please check the dates and try again.");
     return;
   }
 
@@ -311,7 +311,7 @@ blocksBody.addEventListener("click", async (event) => {
     .select("id");
 
   if (error || !data.length) {
-    setMessageText(blockError, error?.message ?? "That blocked period could not be deleted.");
+    setMessageText(blockError, "That blocked period could not be deleted. Please try again.");
     button.disabled = false;
     return;
   }

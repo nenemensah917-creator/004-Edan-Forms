@@ -60,10 +60,6 @@ async function init() {
 
   const { data: allowed, error: permissionError } = await supabase.rpc("is_edan_admin");
 
-  // TEMPORARY DEBUG: remove these two lines once admin access works.
-  console.log("session user:", data.session.user.id, data.session.user.email);
-  console.log("is_edan_admin result:", allowed, "error:", permissionError);
-
   if (permissionError || allowed !== true) {
     restricted.hidden = false;
     setMessage("");
