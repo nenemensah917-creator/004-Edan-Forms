@@ -1654,7 +1654,11 @@ SELECT * FROM (VALUES
   ('Creative Working Session', 'Dedicated time to discuss, develop or work through a creative idea or project.', 90, 3),
   ('Membership Support', 'A session for questions about membership, access or using the space.', 30, 4)
 ) AS defaults(title, description, duration_minutes, sort_order)
-WHERE NOT EXISTS (SELECT 1 FROM member_appointment_types);
+WHERE NOT EXISTS (
+  SELECT 1
+  FROM member_appointment_types existing
+  WHERE existing.title = defaults.title
+);
 
 ALTER TABLE member_appointment_types ENABLE ROW LEVEL SECURITY;
 ALTER TABLE member_appointment_slots ENABLE ROW LEVEL SECURITY;
@@ -1685,7 +1689,7 @@ CREATE POLICY "members_select_own_appointments" ON member_appointments FOR SELEC
 
 CREATE OR REPLACE FUNCTION get_member_appointment_slots(p_from timestamptz, p_to timestamptz)
 RETURNS TABLE (id uuid, starts_at timestamptz, ends_at timestamptz)
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 BEGIN
   IF NOT is_active_member(ARRAY['annual'::text]) THEN RAISE EXCEPTION 'Appointment access requires an active annual membership'; END IF;
   IF p_from IS NULL OR p_to IS NULL OR p_to <= p_from OR p_to - p_from > interval '90 days' THEN RAISE EXCEPTION 'Invalid appointment date range'; END IF;
@@ -1695,11 +1699,11 @@ BEGIN
     AND NOT EXISTS (SELECT 1 FROM member_appointments a WHERE a.slot_id = s.id AND a.status IN ('requested', 'confirmed'))
   ORDER BY s.starts_at;
 END;
-$;
+$$;
 
 CREATE OR REPLACE FUNCTION create_member_appointment(p_appointment_type_id uuid, p_slot_id uuid, p_member_name text, p_member_email text, p_whatsapp_number text, p_member_note text)
 RETURNS TABLE (id uuid, booking_reference text, status text, starts_at timestamptz, ends_at timestamptz, appointment_title text)
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 DECLARE v_slot member_appointment_slots%ROWTYPE; v_type member_appointment_types%ROWTYPE; v_appointment member_appointments%ROWTYPE;
 BEGIN
   IF NOT is_active_member(ARRAY['annual'::text]) THEN RAISE EXCEPTION 'Appointment access requires an active annual membership'; END IF;
@@ -1715,10 +1719,10 @@ BEGIN
   RETURN QUERY SELECT v_appointment.id, v_appointment.booking_reference, v_appointment.status, v_slot.starts_at, v_slot.ends_at, v_type.title;
 EXCEPTION WHEN unique_violation THEN RAISE EXCEPTION 'That time is no longer available';
 END;
-$;
+$$;
 
 CREATE OR REPLACE FUNCTION admin_create_appointment_slot(p_starts_at timestamptz, p_ends_at timestamptz, p_notes text DEFAULT '')
-RETURNS member_appointment_slots LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $
+RETURNS member_appointment_slots LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 DECLARE v_slot member_appointment_slots;
 BEGIN
   IF NOT is_edan_admin() THEN RAISE EXCEPTION 'Not authorized'; END IF;
@@ -1726,27 +1730,27 @@ BEGIN
   INSERT INTO member_appointment_slots (starts_at, ends_at, notes, created_by) VALUES (p_starts_at, p_ends_at, btrim(coalesce(p_notes, '')), auth.uid()) RETURNING * INTO v_slot;
   RETURN v_slot;
 END;
-$;
+$$;
 
 CREATE OR REPLACE FUNCTION admin_set_appointment_slot_status(p_slot_id uuid, p_status text)
-RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 BEGIN
   IF NOT is_edan_admin() THEN RAISE EXCEPTION 'Not authorized'; END IF;
   IF p_status NOT IN ('available', 'blocked') THEN RAISE EXCEPTION 'Invalid slot status'; END IF;
   UPDATE member_appointment_slots SET status = p_status WHERE id = p_slot_id;
   IF NOT FOUND THEN RAISE EXCEPTION 'Slot not found'; END IF;
 END;
-$;
+$$;
 
 CREATE OR REPLACE FUNCTION admin_set_appointment_status(p_appointment_id uuid, p_status text, p_admin_note text DEFAULT '')
-RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 BEGIN
   IF NOT is_edan_admin() THEN RAISE EXCEPTION 'Not authorized'; END IF;
   IF p_status NOT IN ('confirmed', 'declined', 'cancelled', 'completed') THEN RAISE EXCEPTION 'Invalid appointment status'; END IF;
   UPDATE member_appointments SET status = p_status, admin_note = btrim(coalesce(p_admin_note, '')), updated_at = now(), confirmed_at = CASE WHEN p_status = 'confirmed' THEN coalesce(confirmed_at, now()) ELSE confirmed_at END, completed_at = CASE WHEN p_status = 'completed' THEN coalesce(completed_at, now()) ELSE completed_at END WHERE id = p_appointment_id AND status NOT IN ('declined', 'cancelled', 'completed');
   IF NOT FOUND THEN RAISE EXCEPTION 'Appointment is unavailable for that change'; END IF;
 END;
-$;
+$$;
 
 REVOKE ALL ON FUNCTION get_member_appointment_slots(timestamptz, timestamptz) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION get_member_appointment_slots(timestamptz, timestamptz) TO authenticated;
@@ -1762,7 +1766,7 @@ GRANT EXECUTE ON FUNCTION admin_set_appointment_status(uuid, text, text) TO auth
 DROP FUNCTION IF EXISTS admin_dashboard_kpis();
 CREATE FUNCTION admin_dashboard_kpis()
 RETURNS json
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 DECLARE result json;
 BEGIN
   IF NOT is_edan_admin() THEN RAISE EXCEPTION 'Not authorized'; END IF;
@@ -1775,7 +1779,7 @@ BEGIN
   ) INTO result;
   RETURN result;
 END;
-$;
+$$;
 REVOKE EXECUTE ON FUNCTION admin_dashboard_kpis() FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION admin_dashboard_kpis() TO authenticated;
 
