@@ -210,6 +210,17 @@
       </div>
 
       <div class="admin__grid">
+        <article id="member-settings" class="admin__card admin__card--full" aria-labelledby="memberSettingsHeading">
+          <span class="eyebrow">members page</span>
+          <h2 id="memberSettingsHeading">Page settings</h2>
+          <p class="admin__hint">Update the welcome area, section introductions, images, and benefits shown to active members. Use paths such as /images/tree.jpg.</p>
+          <form id="memberSettingsForm" class="admin__settings-form">
+            <div id="memberSettingsFields" class="admin__settings-fields"></div>
+            <p id="memberSettingsError" class="admin__review-error" role="status"></p>
+            <button id="memberSettingsSave" class="admin__button admin__button--solid" type="submit">Save page settings</button>
+          </form>
+        </article>
+
         <article id="content" class="admin__card admin__card--full" aria-labelledby="contentHeading">
           <span class="eyebrow">members page</span>
           <h2 id="contentHeading">Members content</h2>
@@ -244,6 +255,7 @@
         <a class="admin__tabbar-link" href="#members" data-section="members">Members</a>
         <a class="admin__tabbar-link" href="#bookings" data-section="bookings">Bookings</a>
         <a class="admin__tabbar-link" href="#appointments" data-section="appointments">Appointments</a>
+        <a class="admin__tabbar-link" href="#member-settings" data-section="member-settings">Page settings</a>
         <a class="admin__tabbar-link" href="#content" data-section="content">Content</a>
       </nav>
 

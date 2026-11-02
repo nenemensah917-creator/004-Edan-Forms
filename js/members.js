@@ -24,7 +24,7 @@
   const annualBlocks = document.querySelectorAll(".members__block--annual");
   const annualLockNotes = document.querySelectorAll("[data-annual-lock]");
   const annualContent = document.querySelectorAll("[data-annual-content]");
-  const annualBenefits = document.querySelectorAll(".members__benefit--annual");
+  const annualBenefits = () => benefitList.querySelectorAll(".members__benefit--annual");
   const logoutButton = document.getElementById("memberLogout");
   const receiptPanel = document.getElementById("receiptPanel");
   const downloadButton = document.getElementById("downloadReceipt");
@@ -91,9 +91,70 @@
     annualContent.forEach(content => {
       content.hidden = !isAnnual;
     });
-    annualBenefits.forEach(item => {
+    annualBenefits().forEach(item => {
       item.hidden = !isAnnual;
     });
+  }
+
+  function setPageImage(selector, path) {
+    if (!path) return;
+    const image = document.querySelector(selector);
+    if (image) image.src = path;
+  }
+
+  function setPageCopy(selector, value) {
+    if (!value) return;
+    const element = document.querySelector(selector);
+    if (element) element.textContent = value;
+  }
+
+  function applyPageSettings(settings) {
+    setPageCopy(".members__hero .members__eyebrow", settings.hero_eyebrow);
+    setPageCopy(".members__intro .members__eyebrow", settings.membership_eyebrow);
+    setPageCopy("#memberIntro", settings.membership_intro);
+    setPageImage(".members__hero-image", settings.hero_image_path);
+
+    const sections = [
+      ["community", "community"],
+      ["process", "process"],
+      ["gather", "gather"],
+      ["research", "research"],
+      ["bonus", "bonus"],
+      ["appointments", "appointment"]
+    ];
+    sections.forEach(([key, className]) => {
+      const section = document.querySelector(`.members__${className}-hero`);
+      if (!section) return;
+      setPageImage(`.members__${className}-hero img`, settings[`${key}_image_path`]);
+      setPageCopy(`.members__${className}-hero-copy .members__eyebrow`, settings[`${key}_eyebrow`]);
+      setPageCopy(`.members__${className}-hero-copy h2`, settings[`${key}_title`]);
+      setPageCopy(`.members__${className}-hero-copy p`, settings[`${key}_description`]);
+    });
+
+    if (Array.isArray(settings.benefits)) {
+      const list = benefitList.querySelector("ol");
+      list.replaceChildren(...settings.benefits.map((benefit, index) => {
+        const item = document.createElement("li");
+        item.textContent = String(benefit);
+        if (index >= settings.benefits.length - 2) item.className = "members__benefit--annual";
+        return item;
+      }));
+    }
+  }
+
+  async function loadPageSettings(client) {
+    const { data, error } = await client
+      .from("member_page_settings")
+      .select("*")
+      .eq("id", "default")
+      .maybeSingle();
+
+    if (error) {
+      console.error("Members page settings lookup failed:", error);
+      return;
+    }
+
+    if (data) applyPageSettings(data);
   }
 
   async function setupReceipt(client, accessToken, userId) {
@@ -220,6 +281,13 @@
         membership_status: "expired"
       });
       return;
+    }
+
+    if (
+      membership.membership_status === "active" &&
+      ["monthly", "annual"].includes(membership.membership_tier)
+    ) {
+      await loadPageSettings(client);
     }
 
     setMembershipView(membership);

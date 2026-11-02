@@ -426,6 +426,24 @@
   width: auto;
 }
 
+.admin__settings-fields {
+  display: grid;
+  gap: 14px;
+}
+
+.admin__settings-heading {
+  margin: 18px 0 0;
+  padding-top: 18px;
+  border-top: 1px solid var(--admin-line);
+  font-size: 18px;
+}
+
+.admin__settings-heading:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
 /* Form grid (label / field pairs) */
 
 .admin__form-grid {

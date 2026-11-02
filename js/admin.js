@@ -4,6 +4,7 @@ import { loadStayBookings } from "./admin-bookings.js";
 import { loadAppointments } from "./admin-appointments.js";
 import { loadAvailability } from "./admin-availability.js";
 import { loadMemberContent } from "./admin-members-content.js";
+import { loadMemberPageSettings } from "./admin-member-settings.js";
 import { loadKpis } from "./admin-kpis.js";
 import "./admin-nav.js";
 
@@ -24,7 +25,8 @@ async function refreshDashboard() {
     loadStayBookings(),
     loadAppointments(),
     loadAvailability(),
-    loadMemberContent()
+    loadMemberContent(),
+    loadMemberPageSettings()
   ]);
 
   const { error: reminderError } = await supabase.functions.invoke("admin-notifications", {
