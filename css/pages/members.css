@@ -721,6 +721,38 @@
   background: var(--m-cotton);
 }
 
+.members__chat-emoji-picker {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(2rem, 1fr));
+  gap: 0.25rem;
+  max-width: 360px;
+  margin: 0 0 0 auto;
+  padding: 0.55rem;
+  border: 1px solid rgba(50, 45, 38, 0.16);
+  background: var(--m-paper);
+  box-shadow: 0 12px 24px rgba(70, 50, 35, 0.12);
+}
+
+.members__chat-emoji-picker[hidden] {
+  display: none;
+}
+
+.members__chat-emoji-choice {
+  min-width: 2rem;
+  min-height: 2rem;
+  border: 0;
+  border-radius: 0.3rem;
+  background: transparent;
+  font-size: 1.2rem;
+  cursor: pointer;
+}
+
+.members__chat-emoji-choice:hover,
+.members__chat-emoji-choice:focus-visible {
+  background: var(--m-cotton);
+  outline: 0;
+}
+
 .members__chat-send:hover {
   background: var(--m-clay);
   border-color: var(--m-clay);
@@ -3005,6 +3037,18 @@
 
   .members__chat-form {
     min-height: 2.9rem;
+  }
+
+  .members__chat-emoji-picker {
+    grid-template-columns: repeat(6, minmax(2rem, 1fr));
+    width: min(100%, 300px);
+    margin-bottom: 0.45rem;
+  }
+
+  .members__chat-footnote {
+    display: block;
+    margin-top: 0.45rem;
+    font-size: 0.68rem;
   }
 }
 

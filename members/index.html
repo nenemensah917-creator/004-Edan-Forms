@@ -195,7 +195,7 @@
           </div>
           <label class="members__community-search">
             <span aria-hidden="true">⌕</span>
-            <input type="search" placeholder="Search conversations…" aria-label="Search conversations">
+            <input id="chatSearchInput" type="search" placeholder="Search messages…" aria-label="Search messages">
           </label>
           <nav class="members__community-channels" aria-label="Community channels">
             <a class="is-active" href="#community"><span>♧</span> All conversations <b>12</b></a>
@@ -207,39 +207,20 @@
           </nav>
           <div class="members__community-profile">
             <img src="/images/founder-carina.png" alt="">
-            <div><strong>Kwesi Mensah</strong><span><i></i> Online</span></div>
-            <button type="button" aria-label="Open profile settings">⚙</button>
+            <div><strong id="chatProfileName">Member</strong><span><i></i> Online</span></div>
+            <button type="button" id="chatProfileButton" aria-label="Change username">⚙</button>
           </div>
         </aside>
 
         <aside class="members__conversation-list" id="communityConversationList" aria-label="Recent conversations">
-          <div class="members__conversation-list-head"><span>Conversations</span><button type="button" aria-label="Start a new conversation">＋</button></div>
-          <a class="members__conversation is-selected" href="#community">
-            <img src="/images/comm.avif" alt="">
-            <span><strong>General Community</strong><small>Ama: Has anyone been looking into how public…</small></span><time>10:24 AM</time><b>5</b>
-          </a>
-          <a class="members__conversation" href="#community">
-            <img src="/images/garden.jpg" alt="">
-            <span><strong>Conversations Around the City</strong><small>Kojo: I’ve been documenting…</small></span><time>Yesterday</time><b>2</b>
-          </a>
-          <a class="members__conversation" href="#in-process">
-            <img src="/images/architectural sketch.png" alt="">
-            <span><strong>Studio Explorations</strong><small>Nana: Here are some sketches from the studio.</small></span><time>Mon</time>
-          </a>
-          <a class="members__conversation" href="#research">
-            <img src="/images/architectural_sketch2.png" alt="">
-            <span><strong>Material Research</strong><small>Kofi: These materials are incredible!</small></span><time>Sun</time>
-          </a>
-          <a class="members__conversation" href="#gather">
-            <img src="/images/sharing.webp" alt="">
-            <span><strong>Upcoming Gatherings</strong><small>Ama: Looking forward to next week’s event.</small></span><time>Sat</time>
-          </a>
+          <div class="members__conversation-list-head"><span>Conversations</span></div>
+          <div id="chatConversationSummary"></div>
         </aside>
 
         <main class="members__chat-main">
           <header class="members__chat-header">
             <img class="members__chat-avatar" src="/images/comm.avif" alt="">
-            <div><h3>General Community</h3><p>A space for open discussion, ideas and connection.</p><span><i></i> 24 members · Online now</span></div>
+            <div><h3>General Community</h3><p>A space for open discussion, ideas and connection.</p><span><i></i> Live community conversation</span></div>
             <button class="members__chat-conversations-toggle" id="chatConversationsToggle" type="button" aria-expanded="false" aria-controls="communityConversationList">Conversations</button>
             <button class="members__chat-more" type="button" aria-label="More conversation options">⋮</button>
           </header>
@@ -265,25 +246,20 @@
           <div class="members__chat-composer" id="chatComposer" hidden>
             <div class="members__chat-composer-top"><span id="chatCurrentUsername"></span><button type="button" id="changeChatUsername">Change username</button></div>
             <form id="chatMessageForm" class="members__chat-form">
-              <button class="members__chat-attach" type="button" aria-label="Attach a file">⌕</button>
               <textarea id="chatMessageInput" name="message" rows="1" maxlength="1000" placeholder="Write a message…" aria-label="Write a message" required></textarea>
-              <button class="members__chat-emoji" id="chatEmoji" type="button" aria-label="Add an emoji" title="Add an emoji">☺</button>
+              <button class="members__chat-emoji" id="chatEmoji" type="button" aria-label="Choose an emoji" title="Choose an emoji">☺</button>
               <button class="members__chat-send" id="chatSendButton" type="submit" aria-label="Send message">↗</button>
             </form>
-            <p class="members__chat-footnote">Be kind. Leave room for everyone.</p>
+            <div class="members__chat-emoji-picker" id="chatEmojiPicker" role="dialog" aria-label="Choose an emoji" hidden></div>
+            <p class="members__chat-footnote">Enter to send · Shift + Enter for a new line · Be kind.</p>
           </div>
         </main>
 
         <aside class="members__conversation-details" aria-label="Conversation details">
           <h3>Conversation details</h3>
           <p>A space for open discussion, ideas and connection.</p>
-          <h4>Members (24)</h4>
-          <div class="members__detail-avatars">
-            <img src="/images/founder-carina.png" alt=""><img src="/images/ceo.avif" alt=""><img src="/images/Hiba.JPEG" alt=""><img src="/images/comm.avif" alt=""><span>+19</span>
-          </div>
-          <h4>Shared files</h4>
-          <div class="members__shared-files"><img src="/images/garden.jpg" alt="Shared community image"><img src="/images/architectural sketch.png" alt="Shared sketch"></div>
-          <a href="#community">View all →</a>
+          <h4>About this conversation</h4>
+          <p>Messages are shared with active Ɛdan members and update live as people join the conversation.</p>
         </aside>
       </section>
     </section>
