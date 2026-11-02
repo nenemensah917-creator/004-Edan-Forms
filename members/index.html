@@ -478,6 +478,8 @@
     <section class="members__block members__gated members__block--annual members__block--appointments" id="appointments" aria-labelledby="appointmentsTitle">
       <div class="members__appointment-page">
 
+        <a class="members__appointment-back" href="#aroundEdanTitle">← Back to Members</a>
+
         <!-- Hero -->
         <header class="members__appointment-hero">
           <img src="/images/our story people.jpg" alt="A thoughtful conversation at Ɛdan" loading="lazy">
@@ -536,9 +538,11 @@
 
                 <fieldset class="members__appt-fieldset" id="apptStepDate" hidden>
                   <legend>Choose a date</legend>
-                  <select id="appointmentDate" required aria-label="Available dates">
+                  <div class="members__appt-calendar" id="appointmentCalendar" aria-label="Available appointment dates"></div>
+                  <select id="appointmentDate" required aria-label="Available dates" hidden>
                     <option value="">Choose a date</option>
                   </select>
+                  <p class="members__appt-calendar-note">Dates shown are examples until the Ɛdan team publishes availability.</p>
                 </fieldset>
 
                 <fieldset class="members__appt-fieldset" id="apptStepTime" hidden>

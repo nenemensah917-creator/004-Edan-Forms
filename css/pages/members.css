@@ -1354,6 +1354,24 @@
   gap: 0;
 }
 
+/* Appointment navigation */
+.members__appointment-back {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  margin: 1.25rem 0 0.5rem;
+  color: var(--m-clay);
+  font-family: var(--m-mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+  text-decoration: none;
+  text-transform: uppercase;
+}
+
+.members__appointment-back:hover {
+  color: var(--m-ink);
+}
+
 /* Hero */
 .members__appointment-hero {
   position: relative;
@@ -1686,18 +1704,75 @@
   color: var(--m-clay);
 }
 
-/* Date select */
-.members__appt-fieldset select {
-  width: 100%;
-  max-width: 380px;
-  min-height: 44px;
-  padding: 0.6rem 0.85rem;
-  border: 1px solid rgba(50,45,38,0.3);
+/* Date calendar */
+.members__appt-calendar {
+  width: min(100%, 390px);
+  padding: 1rem;
   background: var(--m-paper);
+  border: 1px solid rgba(50,45,38,0.12);
+}
+
+.members__appt-calendar-heading {
+  margin-bottom: 1rem;
+  color: var(--m-ink);
+  font-family: var(--m-serif);
+  font-size: 1.45rem;
+}
+
+.members__appt-calendar-weekdays,
+.members__appt-calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 0.35rem;
+}
+
+.members__appt-calendar-weekdays {
+  margin-bottom: 0.35rem;
+}
+
+.members__appt-calendar-weekdays span {
+  color: var(--m-muted);
+  font-family: var(--m-mono);
+  font-size: 0.58rem;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.members__appt-calendar-day,
+.members__appt-calendar-grid > span {
+  min-height: 2.4rem;
+}
+
+.members__appt-calendar-day {
+  border: 1px solid rgba(50,45,38,0.16);
+  background: transparent;
   color: var(--m-ink);
   font: inherit;
-  font-size: 0.92rem;
-  border-radius: 0;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+}
+
+.members__appt-calendar-day:hover:not(:disabled),
+.members__appt-calendar-day.is-selected {
+  border-color: var(--m-clay);
+  background: var(--m-clay);
+  color: #fff;
+}
+
+.members__appt-calendar-day:disabled {
+  border-color: transparent;
+  background: rgba(50,45,38,0.035);
+  color: rgba(50,45,38,0.3);
+  cursor: not-allowed;
+}
+
+.members__appt-calendar-note {
+  max-width: 390px;
+  margin-top: 0.65rem;
+  color: var(--m-muted);
+  font-size: 0.75rem;
+  line-height: 1.45;
 }
 
 .members__appt-fieldset select:focus {

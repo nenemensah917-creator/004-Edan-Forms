@@ -10,6 +10,7 @@
   const form       = document.getElementById("appointmentForm");
   const radioList  = document.getElementById("appointmentTypeList2");
   const dateSelect = document.getElementById("appointmentDate");
+  const calendar   = document.getElementById("appointmentCalendar");
   const slotList   = document.getElementById("appointmentSlotList");
   const slotInput  = document.getElementById("appointmentSlot");
   const nameInput  = document.getElementById("appointmentName");
@@ -164,10 +165,57 @@
   // ── Dates & slots ────────────────────────────────────────────────────────
 
   function renderDates() {
-    if (!dateSelect) return;
-    const dates = [...new Map(slots.map(s => [new Date(s.starts_at).toISOString().slice(0, 10), s])).keys()];
+    if (!dateSelect || !calendar) return;
+
+    const availableDates = new Set(slots.map(slot => new Date(slot.starts_at).toISOString().slice(0, 10)));
+    const firstDate = new Date();
+    firstDate.setHours(12, 0, 0, 0);
+    const lastDate = new Date(firstDate);
+    lastDate.setDate(lastDate.getDate() + 59);
+    const month = firstDate.getMonth();
+    const year = firstDate.getFullYear();
+    const monthLabel = new Intl.DateTimeFormat(undefined, { month: "long", year: "numeric" }).format(firstDate);
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const firstWeekday = new Date(year, month, 1).getDay();
+    const heading = document.createElement("div");
+    heading.className = "members__appt-calendar-heading";
+    heading.textContent = monthLabel;
+
+    const weekdays = document.createElement("div");
+    weekdays.className = "members__appt-calendar-weekdays";
+    ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].forEach(day => {
+      const label = document.createElement("span");
+      label.textContent = day;
+      weekdays.append(label);
+    });
+
+    const grid = document.createElement("div");
+    grid.className = "members__appt-calendar-grid";
+    for (let index = 0; index < firstWeekday; index += 1) {
+      grid.append(document.createElement("span"));
+    }
+
     dateSelect.replaceChildren(new Option("Choose a date", ""));
-    dates.forEach(val => dateSelect.append(new Option(dateFormat.format(new Date(`${val}T12:00:00`)), val)));
+    for (let day = 1; day <= daysInMonth; day += 1) {
+      const date = new Date(year, month, day, 12);
+      const value = date.toISOString().slice(0, 10);
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "members__appt-calendar-day";
+      button.textContent = String(day);
+      button.disabled = !availableDates.has(value) || date > lastDate;
+      button.setAttribute("aria-label", `${dateFormat.format(date)}${button.disabled ? ", unavailable" : ", available"}`);
+      button.addEventListener("click", () => {
+        dateSelect.value = value;
+        calendar.querySelectorAll(".members__appt-calendar-day").forEach(dayButton => dayButton.classList.remove("is-selected"));
+        button.classList.add("is-selected");
+        renderTimeSlots();
+      });
+      grid.append(button);
+      if (availableDates.has(value)) dateSelect.append(new Option(dateFormat.format(date), value));
+    }
+
+    calendar.replaceChildren(heading, weekdays, grid);
   }
 
   function renderTimeSlots() {
