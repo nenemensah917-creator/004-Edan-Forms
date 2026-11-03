@@ -1245,8 +1245,12 @@ ALTER TABLE membership_applications
   ADD COLUMN IF NOT EXISTS commitment_agreed boolean NOT NULL DEFAULT false,
   ADD COLUMN IF NOT EXISTS submitted_at timestamptz;
 
+DROP FUNCTION IF EXISTS submit_membership_interest(text, text, text, text, text, boolean);
+DROP FUNCTION IF EXISTS submit_membership_interest(text, text, text, text, text, boolean, text);
+
 CREATE OR REPLACE FUNCTION submit_membership_interest(
   p_full_name text,
+  p_email text,
   p_phone text,
   p_practice_type text,
   p_based_in text,
@@ -1258,10 +1262,9 @@ RETURNS uuid
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
-AS $$
+AS $
 DECLARE
   v_user uuid := auth.uid();
-  v_email text := auth.jwt() ->> 'email';
   v_id uuid;
 BEGIN
   IF v_user IS NULL THEN
@@ -1272,70 +1275,7 @@ BEGIN
     RAISE EXCEPTION 'Please enter your full name';
   END IF;
 
-  IF char_length(btrim(coalesce(p_phone, ''))) = 0 OR char_length(p_phone) > 20 THEN
-    RAISE EXCEPTION 'Please enter a valid phone number';
-  END IF;
-
-  IF p_practice_type IS NULL OR p_practice_type NOT IN ('researcher', 'creative', 'spatial_practitioner', 'collective', 'student', 'partner_institution', 'other') THEN
-    RAISE EXCEPTION 'Choose what best describes you';
-  END IF;
-
-  IF p_based_in IS NULL OR p_based_in NOT IN ('accra', 'passing_through') THEN
-    RAISE EXCEPTION 'Tell us where you are based';
-  END IF;
-
-  IF char_length(btrim(coalesce(p_about_work, ''))) = 0 OR char_length(p_about_work) > 1000 THEN
-    RAISE EXCEPTION 'Tell us about your work (up to 1000 characters)';
-  END IF;
-
-  IF p_commitment_agreed IS DISTINCT FROM true THEN
-    RAISE EXCEPTION 'Please agree to the shared commitment to a fairer city';
-  END IF;
-
-  IF p_membership_tier IS NULL OR p_membership_tier NOT IN ('monthly', 'annual') THEN
-    RAISE EXCEPTION 'Choose a membership option';
-  END IF;
-
-  IF v_email IS NULL THEN
-    RAISE EXCEPTION 'Your account has no email address';
-  END IF;
-
-  SELECT id INTO v_id
-  FROM membership_applications
-  WHERE user_id = v_user AND status = 'pending'
-  ORDER BY created_at DESC
-  LIMIT 1
-  FOR UPDATE;
-
-  IF v_id IS NULL THEN
-    INSERT INTO membership_applications (
-      user_id, applicant_email, status, full_name, phone, practice_type,
-      based_in, about_work, commitment_agreed, submitted_at, membership_tier
-    )
-    VALUES (
-      v_user, v_email, 'pending', btrim(p_full_name), btrim(p_phone), p_practice_type,
-      p_based_in, btrim(p_about_work), true, now(), p_membership_tier
-    )
-    RETURNING id INTO v_id;
-  ELSE
-    UPDATE membership_applications
-    SET full_name = btrim(p_full_name),
-        phone = btrim(p_phone),
-        practice_type = p_practice_type,
-        based_in = p_based_in,
-        about_work = btrim(p_about_work),
-        commitment_agreed = true,
-        submitted_at = now(),
-        membership_tier = p_membership_tier
-    WHERE id = v_id;
-  END IF;
-
-  RETURN v_id;
-END;
-$$;
-
-REVOKE EXECUTE ON FUNCTION submit_membership_interest(text, text, text, text, text, boolean, text) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION submit_membership_interest(text, text, text, text, text, boolean, text) TO authenticated;
+  IF char_length(btrim(coalesce(p_email, ''))) = 0 OR p_email !~* '^[^@]+@[^@]+\.[^@]+
 
 -- ===========================================================================
 -- 16. ADMIN DASHBOARD MEMBERSHIP STATS
@@ -1629,7 +1569,8 @@ CREATE TABLE IF NOT EXISTS member_appointments (
   booking_reference text NOT NULL UNIQUE DEFAULT ('EDN-APT-' || upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 8))),
   user_id uuid NOT NULL DEFAULT auth.uid() REFERENCES auth.users(id) ON DELETE CASCADE,
   appointment_type_id uuid NOT NULL REFERENCES member_appointment_types(id),
-  slot_id uuid NOT NULL REFERENCES member_appointment_slots(id),
+  slot_id uuid REFERENCES member_appointment_slots(id),
+  requested_start_at timestamptz,
   member_name text NOT NULL CHECK (length(btrim(member_name)) BETWEEN 1 AND 120),
   member_email text NOT NULL CHECK (length(btrim(member_email)) BETWEEN 3 AND 254),
   whatsapp_number text NOT NULL DEFAULT '' CHECK (length(whatsapp_number) <= 40),
@@ -1645,7 +1586,8 @@ CREATE TABLE IF NOT EXISTS member_appointments (
 CREATE INDEX IF NOT EXISTS member_appointment_slots_starts_at_idx ON member_appointment_slots (starts_at);
 CREATE INDEX IF NOT EXISTS member_appointments_user_created_at_idx ON member_appointments (user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS member_appointments_status_idx ON member_appointments (status, created_at DESC);
-CREATE UNIQUE INDEX IF NOT EXISTS member_appointments_active_slot_idx ON member_appointments (slot_id) WHERE status IN ('requested', 'confirmed');
+CREATE INDEX IF NOT EXISTS member_appointments_requested_start_idx ON member_appointments (requested_start_at) WHERE requested_start_at IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS member_appointments_active_slot_idx ON member_appointments (slot_id) WHERE status IN ('requested', 'confirmed') AND slot_id IS NOT NULL;
 
 INSERT INTO member_appointment_types (title, description, duration_minutes, sort_order)
 SELECT * FROM (VALUES
@@ -1756,6 +1698,89 @@ REVOKE ALL ON FUNCTION get_member_appointment_slots(timestamptz, timestamptz) FR
 GRANT EXECUTE ON FUNCTION get_member_appointment_slots(timestamptz, timestamptz) TO authenticated;
 REVOKE ALL ON FUNCTION create_member_appointment(uuid, uuid, text, text, text, text) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION create_member_appointment(uuid, uuid, text, text, text, text) TO authenticated;
+
+CREATE OR REPLACE FUNCTION create_member_appointment(
+  p_appointment_type_id uuid,
+  p_requested_start_at timestamptz,
+  p_member_name text,
+  p_member_email text,
+  p_whatsapp_number text,
+  p_member_note text
+)
+RETURNS TABLE (
+  id uuid,
+  booking_reference text,
+  status text,
+  starts_at timestamptz,
+  ends_at timestamptz,
+  appointment_title text
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_type member_appointment_types%ROWTYPE;
+  v_appointment member_appointments%ROWTYPE;
+BEGIN
+  IF NOT is_active_member(ARRAY['annual'::text]) THEN
+    RAISE EXCEPTION 'Appointment access requires an active annual membership';
+  END IF;
+
+  IF p_requested_start_at IS NULL
+     OR p_requested_start_at <= now()
+     OR p_requested_start_at > now() + interval '180 days'
+     OR length(btrim(coalesce(p_member_name, ''))) NOT BETWEEN 1 AND 120
+     OR length(btrim(coalesce(p_member_email, ''))) NOT BETWEEN 3 AND 254
+     OR length(coalesce(p_whatsapp_number, '')) > 40
+     OR length(coalesce(p_member_note, '')) > 2000 THEN
+    RAISE EXCEPTION 'Please check the appointment details';
+  END IF;
+
+  SELECT * INTO v_type
+  FROM member_appointment_types
+  WHERE id = p_appointment_type_id AND is_active
+  FOR SHARE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'That appointment type is unavailable';
+  END IF;
+
+  INSERT INTO member_appointments (
+    user_id,
+    appointment_type_id,
+    slot_id,
+    requested_start_at,
+    member_name,
+    member_email,
+    whatsapp_number,
+    member_note
+  )
+  VALUES (
+    auth.uid(),
+    p_appointment_type_id,
+    NULL,
+    p_requested_start_at,
+    btrim(p_member_name),
+    lower(btrim(p_member_email)),
+    btrim(coalesce(p_whatsapp_number, '')),
+    btrim(coalesce(p_member_note, ''))
+  )
+  RETURNING * INTO v_appointment;
+
+  RETURN QUERY
+  SELECT
+    v_appointment.id,
+    v_appointment.booking_reference,
+    v_appointment.status,
+    p_requested_start_at,
+    p_requested_start_at + make_interval(mins => v_type.duration_minutes),
+    v_type.title;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION create_member_appointment(uuid, timestamptz, text, text, text, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION create_member_appointment(uuid, timestamptz, text, text, text, text) TO authenticated;
 REVOKE ALL ON FUNCTION admin_create_appointment_slot(timestamptz, timestamptz, text) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION admin_create_appointment_slot(timestamptz, timestamptz, text) TO authenticated;
 REVOKE ALL ON FUNCTION admin_set_appointment_slot_status(uuid, text) FROM PUBLIC, anon;
@@ -1775,7 +1800,638 @@ BEGIN
     'pending_review', (SELECT count(*) FROM membership_applications WHERE status = 'pending'),
     'expired', (SELECT count(*) FROM memberships WHERE membership_status = 'expired' OR (membership_status = 'active' AND expires_at IS NOT NULL AND expires_at <= now())),
     'total_bookings', (SELECT count(*) FROM stay_bookings WHERE status IN ('confirmed', 'completed')),
-    'appointments', (SELECT count(*) FROM member_appointments a JOIN member_appointment_slots s ON s.id = a.slot_id WHERE a.status IN ('requested', 'confirmed') AND s.starts_at >= now())
+    'appointments', (SELECT count(*) FROM member_appointments a LEFT JOIN member_appointment_slots s ON s.id = a.slot_id WHERE a.status IN ('requested', 'confirmed') AND COALESCE(s.starts_at, a.requested_start_at) >= now())
+  ) INTO result;
+  RETURN result;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION admin_dashboard_kpis() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION admin_dashboard_kpis() TO authenticated;
+
+-- ===========================================================================
+-- 21. SAMPLE ROOMS
+-- ===========================================================================
+-- These 5 rooms are needed for the Stay booking page to work.
+-- Safe to re-run (ON CONFLICT does nothing).
+
+INSERT INTO stay_rooms (name) VALUES ('001')
+ON CONFLICT (name) DO NOTHING;
+INSERT INTO stay_rooms (name) VALUES ('002')
+ON CONFLICT (name) DO NOTHING;
+INSERT INTO stay_rooms (name) VALUES ('003')
+ON CONFLICT (name) DO NOTHING;
+INSERT INTO stay_rooms (name) VALUES ('004')
+ON CONFLICT (name) DO NOTHING;
+INSERT INTO stay_rooms (name) VALUES ('005')
+ON CONFLICT (name) DO NOTHING;
+
+NOTIFY pgrst, 'reload schema';
+
+-- ===========================================================================
+-- DONE. Your database is now fully set up.
+-- ===========================================================================
+-- AFTER RUNNING THIS SCRIPT, do one more thing to make yourself an admin:
+--
+-- 1. Sign up for an account on your website's login page first.
+-- 2. Go to your Supabase dashboard > Authentication > Users.
+-- 3. Copy your user ID (the long string under the "UID" column).
+-- 4. Come back to the SQL Editor and run this (replace YOUR-USER-ID-HERE):
+--
+--    INSERT INTO admins (user_id) VALUES ('YOUR-USER-ID-HERE')
+--    ON CONFLICT (user_id) DO NOTHING;
+--
+-- That gives you access to the admin Dashboard.
+-- ===========================================================================
+ THEN
+    RAISE EXCEPTION 'Please enter a valid email address';
+  END IF;
+
+  IF char_length(btrim(coalesce(p_phone, ''))) = 0 OR char_length(p_phone) > 20 THEN
+    RAISE EXCEPTION 'Please enter a valid phone number';
+  END IF;
+
+  IF p_practice_type IS NULL OR p_practice_type NOT IN ('researcher', 'creative', 'spatial_practitioner', 'collective', 'student', 'partner_institution', 'other') THEN
+    RAISE EXCEPTION 'Choose what best describes you';
+  END IF;
+
+  IF p_based_in IS NULL OR p_based_in NOT IN ('accra', 'passing_through') THEN
+    RAISE EXCEPTION 'Tell us where you are based';
+  END IF;
+
+  IF char_length(btrim(coalesce(p_about_work, ''))) = 0 OR char_length(p_about_work) > 1000 THEN
+    RAISE EXCEPTION 'Tell us about your work (up to 1000 characters)';
+  END IF;
+
+  IF p_commitment_agreed IS DISTINCT FROM true THEN
+    RAISE EXCEPTION 'Please agree to the shared commitment to a fairer city';
+  END IF;
+
+  IF p_membership_tier IS NULL OR p_membership_tier NOT IN ('monthly', 'annual') THEN
+    RAISE EXCEPTION 'Choose a membership option';
+  END IF;
+
+  SELECT id INTO v_id
+  FROM membership_applications
+  WHERE user_id = v_user AND status = 'pending'
+  ORDER BY created_at DESC
+  LIMIT 1
+  FOR UPDATE;
+
+  IF v_id IS NULL THEN
+    INSERT INTO membership_applications (
+      user_id, applicant_email, status, full_name, phone, practice_type,
+      based_in, about_work, commitment_agreed, submitted_at, membership_tier
+    )
+    VALUES (
+      v_user, btrim(p_email), 'pending', btrim(p_full_name), btrim(p_phone), p_practice_type,
+      p_based_in, btrim(p_about_work), true, now(), p_membership_tier
+    )
+    RETURNING id INTO v_id;
+  ELSE
+    UPDATE membership_applications
+    SET full_name = btrim(p_full_name),
+        applicant_email = btrim(p_email),
+        phone = btrim(p_phone),
+        practice_type = p_practice_type,
+        based_in = p_based_in,
+        about_work = btrim(p_about_work),
+        commitment_agreed = true,
+        submitted_at = now(),
+        membership_tier = p_membership_tier
+    WHERE id = v_id;
+  END IF;
+
+  RETURN v_id;
+END;
+$;
+
+REVOKE EXECUTE ON FUNCTION submit_membership_interest(text, text, text, text, text, text, boolean, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION submit_membership_interest(text, text, text, text, text, text, boolean, text) TO authenticated;
+
+-- ===========================================================================
+-- 16. ADMIN DASHBOARD MEMBERSHIP STATS
+-- ===========================================================================
+
+CREATE OR REPLACE FUNCTION admin_dashboard_kpis()
+RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF NOT is_edan_admin() THEN
+    RAISE EXCEPTION 'Admins only' USING ERRCODE = '42501';
+  END IF;
+
+  RETURN jsonb_build_object(
+    'active_members', (
+      SELECT count(*)::int FROM memberships
+      WHERE membership_status = 'active' AND (expires_at IS NULL OR expires_at > now())
+    ),
+    'pending_review', (
+      SELECT count(*)::int FROM membership_applications
+      WHERE status = 'pending' AND submitted_at IS NOT NULL
+    ),
+    'paid_awaiting_activation', (
+      SELECT count(*)::int FROM payment_transactions pt
+      JOIN membership_applications ma ON ma.id = pt.membership_application_id
+      WHERE pt.status = 'success' AND ma.status = 'pending'
+    ),
+    'expired', (
+      SELECT count(*)::int FROM memberships
+      WHERE membership_status = 'expired'
+         OR (membership_status = 'active' AND expires_at IS NOT NULL AND expires_at <= now())
+    )
+  );
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION admin_dashboard_kpis() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION admin_dashboard_kpis() TO authenticated;
+
+-- ===========================================================================
+-- 17. ADMIN DELETE POLICIES, SITE-IMAGES BUCKET, ROOM PHOTOS
+-- ===========================================================================
+
+DROP POLICY IF EXISTS "admins_delete_stay_bookings" ON public.stay_bookings;
+CREATE POLICY "admins_delete_stay_bookings" ON public.stay_bookings FOR DELETE
+TO authenticated
+USING (
+  public.is_edan_admin()
+  AND status IN ('pending_payment', 'payment_failed', 'cancelled')
+);
+
+DROP POLICY IF EXISTS "admins_delete_stay_rooms" ON public.stay_rooms;
+CREATE POLICY "admins_delete_stay_rooms" ON public.stay_rooms FOR DELETE
+TO authenticated
+USING (public.is_edan_admin());
+
+DROP POLICY IF EXISTS "admins_delete_membership_applications" ON public.membership_applications;
+CREATE POLICY "admins_delete_membership_applications" ON public.membership_applications FOR DELETE
+TO authenticated
+USING (
+  public.is_edan_admin()
+  AND status IN ('pending', 'rejected')
+);
+
+ALTER TABLE public.stay_rooms ADD COLUMN IF NOT EXISTS image_path text NOT NULL DEFAULT '';
+ALTER TABLE public.membership_applications ADD COLUMN IF NOT EXISTS submission_emailed_at timestamptz;
+ALTER TABLE public.stay_bookings ADD COLUMN IF NOT EXISTS confirmation_emailed_at timestamptz;
+GRANT UPDATE (image_path) ON public.stay_rooms TO authenticated;
+GRANT DELETE ON public.stay_bookings, public.stay_rooms, public.membership_applications TO authenticated;
+
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+VALUES (
+  'site-images',
+  'site-images',
+  true,
+  5242880,
+  ARRAY['image/jpeg', 'image/png', 'image/webp', 'image/avif', 'image/gif']
+)
+ON CONFLICT (id) DO UPDATE SET
+  public = EXCLUDED.public,
+  file_size_limit = EXCLUDED.file_size_limit,
+  allowed_mime_types = EXCLUDED.allowed_mime_types;
+
+DROP POLICY IF EXISTS "admins_insert_site_images" ON storage.objects;
+CREATE POLICY "admins_insert_site_images" ON storage.objects FOR INSERT
+TO authenticated
+WITH CHECK (bucket_id = 'site-images' AND public.is_edan_admin());
+
+DROP POLICY IF EXISTS "admins_update_site_images" ON storage.objects;
+CREATE POLICY "admins_update_site_images" ON storage.objects FOR UPDATE
+TO authenticated
+USING (bucket_id = 'site-images' AND public.is_edan_admin())
+WITH CHECK (bucket_id = 'site-images' AND public.is_edan_admin());
+
+DROP POLICY IF EXISTS "admins_delete_site_images" ON storage.objects;
+CREATE POLICY "admins_delete_site_images" ON storage.objects FOR DELETE
+TO authenticated
+USING (bucket_id = 'site-images' AND public.is_edan_admin());
+
+-- ===========================================================================
+-- 18. MEMBER RESEARCH ITEMS (with body text and seed data)
+-- ===========================================================================
+
+CREATE TABLE IF NOT EXISTS member_research_items (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  title text NOT NULL CHECK (length(btrim(title)) BETWEEN 1 AND 160),
+  summary text NOT NULL DEFAULT '',
+  body text NOT NULL DEFAULT '',
+  category text NOT NULL DEFAULT '',
+  image_path text NOT NULL DEFAULT '',
+  read_more_url text NOT NULL DEFAULT '',
+  is_published boolean NOT NULL DEFAULT false,
+  sort_order integer NOT NULL DEFAULT 0,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE member_research_items ENABLE ROW LEVEL SECURITY;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON member_research_items TO authenticated;
+
+DROP POLICY IF EXISTS "members_select_published_research" ON member_research_items;
+CREATE POLICY "members_select_published_research" ON member_research_items FOR SELECT
+  TO authenticated USING (
+    (is_published AND is_active_member(ARRAY['monthly', 'annual'])) OR is_edan_admin()
+  );
+
+DROP POLICY IF EXISTS "admins_insert_research" ON member_research_items;
+CREATE POLICY "admins_insert_research" ON member_research_items FOR INSERT
+  TO authenticated WITH CHECK (is_edan_admin());
+
+DROP POLICY IF EXISTS "admins_update_research" ON member_research_items;
+CREATE POLICY "admins_update_research" ON member_research_items FOR UPDATE
+  TO authenticated USING (is_edan_admin()) WITH CHECK (is_edan_admin());
+
+DROP POLICY IF EXISTS "admins_delete_research" ON member_research_items;
+CREATE POLICY "admins_delete_research" ON member_research_items FOR DELETE
+  TO authenticated USING (is_edan_admin());
+
+INSERT INTO member_research_items (title, summary, body, category, image_path, is_published, sort_order)
+SELECT v.title, v.summary, v.body, v.category, v.image_path, true, v.sort_order
+FROM (VALUES
+  ('Sample: Notes on breeze-block light',
+   'A sample research note on how perforated walls shape light and airflow across a day.',
+   'Breeze blocks are perforated walls, a familiar feature of hot-climate buildings. They let air move through a space while filtering strong sun, so a room can stay open without becoming glaring.
+
+Over a day, the pattern a breeze block casts shifts across the floor and walls. Watching these shadows is a simple way to understand how light and ventilation work together, and it is a useful starting point for thinking about how a building should respond to its site.
+
+This note is a sample. It shows the kind of short research text that will appear in this section.',
+   'Research note', '/images/breeze-block-detail.webp', 1),
+  ('Sample: Dye pits and the colour of process',
+   'A sample creative insight on working with natural dyes, from preparation to the finished cloth.',
+   'Natural dyes ask for patience. The pits are prepared, the material is soaked and lifted, and the colour changes as it meets the air. What looks like one shade in the vat can settle into something quite different once it dries.
+
+Working this way means accepting that the process sets the outcome. Each batch teaches something about timing, water and the plants or minerals involved, and those lessons carry into the next piece of work.
+
+This note is a sample. Real insights from the studio will replace it.',
+   'Creative insight', '/images/dye-pits.jpg', 2),
+  ('Sample: Mapping Accra in lines',
+   'A sample project note on drawing the city as a set of routes, edges and shared spaces.',
+   'Drawing a city as lines shifts attention away from buildings and towards movement. Routes, edges and shared spaces become the main characters of the map, and the places where people gather start to stand out.
+
+This kind of mapping is a way of asking who a city is for. The lines we draw can show where access is easy, where it is broken, and where a neighbourhood already holds its own sense of community.
+
+This note is a sample. A full project publication will replace it once the work is ready to share.',
+   'Project publication', '/images/accra-map-lines.png', 3),
+  ('Sample: Plants that find the cracks',
+   'A sample research note on how planting and weathering interact along the edges of a building.',
+   'Cracks in a rendered wall are small thresholds. Seeds and roots find them first, and over several seasons they change how the wall holds moisture.
+
+Recording these changes is one way the studio tests materials against the conditions they actually face.',
+   'Research note', '/images/garden-plant.jpg', 4)
+) AS v(title, summary, body, category, image_path, sort_order)
+WHERE NOT EXISTS (SELECT 1 FROM member_research_items);
+
+-- ===========================================================================
+-- 19. MEMBER IN-PROCESS ITEMS (with seed data)
+-- ===========================================================================
+
+CREATE TABLE IF NOT EXISTS member_process_items (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  title text NOT NULL CHECK (length(btrim(title)) BETWEEN 1 AND 160),
+  summary text NOT NULL DEFAULT '',
+  body text NOT NULL DEFAULT '',
+  category text NOT NULL DEFAULT '',
+  image_path text NOT NULL DEFAULT '',
+  is_published boolean NOT NULL DEFAULT false,
+  sort_order integer NOT NULL DEFAULT 0,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  content_type text NOT NULL DEFAULT 'project' CHECK (content_type IN ('project', 'update', 'video')),
+  is_featured boolean NOT NULL DEFAULT false,
+  progress_label text NOT NULL DEFAULT '',
+  updated_label text NOT NULL DEFAULT '',
+  video_path text NOT NULL DEFAULT '',
+  poster_path text NOT NULL DEFAULT '',
+  duration_label text NOT NULL DEFAULT '',
+  link_url text NOT NULL DEFAULT '',
+  link_label text NOT NULL DEFAULT 'View project'
+);
+
+ALTER TABLE member_process_items ENABLE ROW LEVEL SECURITY;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON member_process_items TO authenticated;
+
+DROP POLICY IF EXISTS "members_select_published_process" ON member_process_items;
+CREATE POLICY "members_select_published_process" ON member_process_items FOR SELECT
+  TO authenticated USING (
+    (is_published AND is_active_member(ARRAY['monthly', 'annual'])) OR is_edan_admin()
+  );
+
+DROP POLICY IF EXISTS "admins_insert_process" ON member_process_items;
+CREATE POLICY "admins_insert_process" ON member_process_items FOR INSERT
+  TO authenticated WITH CHECK (is_edan_admin());
+
+DROP POLICY IF EXISTS "admins_update_process" ON member_process_items;
+CREATE POLICY "admins_update_process" ON member_process_items FOR UPDATE
+  TO authenticated USING (is_edan_admin()) WITH CHECK (is_edan_admin());
+
+DROP POLICY IF EXISTS "admins_delete_process" ON member_process_items;
+CREATE POLICY "admins_delete_process" ON member_process_items FOR DELETE
+  TO authenticated USING (is_edan_admin());
+
+INSERT INTO member_process_items (title, summary, body, category, image_path, is_published, sort_order)
+SELECT v.title, v.summary, v.body, v.category, v.image_path, true, v.sort_order
+FROM (VALUES
+  ('Sample: The studio table',
+   'A sample note on how the team gathers around one table to test ideas before they become drawings.',
+   'Sample text for review. Replace with a real studio note.
+
+The studio table is where most ideas first meet a second opinion. Sketches, half-written notes and material samples sit side by side, and a conversation usually decides what goes forward.
+
+This sample shows how a longer in-process note reads inside the members space.',
+   'Studio notes', '/images/sharing.webp', 1),
+  ('Sample: Notes on a wall that has weathered',
+   'A sample observation on plants and paint loss along an old wall, and what they reveal about materials over time.',
+   'Sample text for review. Replace with a real observation.
+
+Walls keep a record of the weather they have stood through. Where paint has lifted and a plant has found a crack, the surface tells us how water moves and where it settles.
+
+This sample shows how a research-style in-process note is presented.',
+   'Field notes', '/images/garden-plant.jpg', 2)
+) AS v(title, summary, body, category, image_path, sort_order)
+WHERE NOT EXISTS (SELECT 1 FROM member_process_items);
+
+INSERT INTO member_process_items (
+  title, summary, category, image_path, poster_path, content_type,
+  duration_label, updated_label, is_published, sort_order
+)
+SELECT
+  'Research in Practice',
+  'A look inside our studio and ongoing research at Ɛdan.',
+  'Studio journal', '/images/garden.jpg', '/images/garden.jpg', 'video',
+  '12:34', 'Featured', true, 90
+WHERE NOT EXISTS (
+  SELECT 1 FROM member_process_items
+  WHERE content_type = 'video' AND title = 'Research in Practice'
+);
+
+-- ===========================================================================
+-- 20. MEMBER APPOINTMENTS
+-- ===========================================================================
+
+CREATE TABLE IF NOT EXISTS member_appointment_types (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  title text NOT NULL CHECK (length(btrim(title)) BETWEEN 1 AND 120),
+  description text NOT NULL DEFAULT '' CHECK (length(description) <= 1000),
+  duration_minutes integer NOT NULL DEFAULT 60 CHECK (duration_minutes BETWEEN 15 AND 240),
+  is_active boolean NOT NULL DEFAULT true,
+  sort_order integer NOT NULL DEFAULT 0,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS member_appointment_slots (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  starts_at timestamptz NOT NULL,
+  ends_at timestamptz NOT NULL,
+  status text NOT NULL DEFAULT 'available' CHECK (status IN ('available', 'blocked')),
+  notes text NOT NULL DEFAULT '' CHECK (length(notes) <= 500),
+  created_by uuid NOT NULL DEFAULT auth.uid() REFERENCES auth.users(id),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  CHECK (ends_at > starts_at),
+  CHECK (ends_at - starts_at <= interval '4 hours')
+);
+
+CREATE TABLE IF NOT EXISTS member_appointments (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  booking_reference text NOT NULL UNIQUE DEFAULT ('EDN-APT-' || upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 8))),
+  user_id uuid NOT NULL DEFAULT auth.uid() REFERENCES auth.users(id) ON DELETE CASCADE,
+  appointment_type_id uuid NOT NULL REFERENCES member_appointment_types(id),
+  slot_id uuid REFERENCES member_appointment_slots(id),
+  requested_start_at timestamptz,
+  member_name text NOT NULL CHECK (length(btrim(member_name)) BETWEEN 1 AND 120),
+  member_email text NOT NULL CHECK (length(btrim(member_email)) BETWEEN 3 AND 254),
+  whatsapp_number text NOT NULL DEFAULT '' CHECK (length(whatsapp_number) <= 40),
+  member_note text NOT NULL DEFAULT '' CHECK (length(member_note) <= 2000),
+  status text NOT NULL DEFAULT 'requested' CHECK (status IN ('requested', 'confirmed', 'declined', 'cancelled', 'completed')),
+  admin_note text NOT NULL DEFAULT '' CHECK (length(admin_note) <= 2000),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  confirmed_at timestamptz,
+  completed_at timestamptz
+);
+
+CREATE INDEX IF NOT EXISTS member_appointment_slots_starts_at_idx ON member_appointment_slots (starts_at);
+CREATE INDEX IF NOT EXISTS member_appointments_user_created_at_idx ON member_appointments (user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS member_appointments_status_idx ON member_appointments (status, created_at DESC);
+CREATE INDEX IF NOT EXISTS member_appointments_requested_start_idx ON member_appointments (requested_start_at) WHERE requested_start_at IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS member_appointments_active_slot_idx ON member_appointments (slot_id) WHERE status IN ('requested', 'confirmed') AND slot_id IS NOT NULL;
+
+INSERT INTO member_appointment_types (title, description, duration_minutes, sort_order)
+SELECT * FROM (VALUES
+  ('Introductory Conversation', 'A chance to meet the team, learn more about Ɛdan and explore possible ways to get involved.', 60, 1),
+  ('Research Consultation', 'A focused conversation around research interests, questions, ideas or ongoing work.', 60, 2),
+  ('Creative Working Session', 'Dedicated time to discuss, develop or work through a creative idea or project.', 90, 3),
+  ('Membership Support', 'A session for questions about membership, access or using the space.', 30, 4)
+) AS defaults(title, description, duration_minutes, sort_order)
+WHERE NOT EXISTS (
+  SELECT 1
+  FROM member_appointment_types existing
+  WHERE existing.title = defaults.title
+);
+
+ALTER TABLE member_appointment_types ENABLE ROW LEVEL SECURITY;
+ALTER TABLE member_appointment_slots ENABLE ROW LEVEL SECURITY;
+ALTER TABLE member_appointments ENABLE ROW LEVEL SECURITY;
+
+GRANT SELECT ON member_appointment_types, member_appointment_slots, member_appointments TO authenticated;
+
+DROP POLICY IF EXISTS "annual_members_select_appointment_types" ON member_appointment_types;
+CREATE POLICY "annual_members_select_appointment_types" ON member_appointment_types FOR SELECT TO authenticated USING (is_active_member(ARRAY['annual'::text]) OR is_edan_admin());
+DROP POLICY IF EXISTS "admins_insert_appointment_types" ON member_appointment_types;
+CREATE POLICY "admins_insert_appointment_types" ON member_appointment_types FOR INSERT TO authenticated WITH CHECK (is_edan_admin());
+DROP POLICY IF EXISTS "admins_update_appointment_types" ON member_appointment_types;
+CREATE POLICY "admins_update_appointment_types" ON member_appointment_types FOR UPDATE TO authenticated USING (is_edan_admin()) WITH CHECK (is_edan_admin());
+DROP POLICY IF EXISTS "admins_delete_appointment_types" ON member_appointment_types;
+CREATE POLICY "admins_delete_appointment_types" ON member_appointment_types FOR DELETE TO authenticated USING (is_edan_admin());
+
+DROP POLICY IF EXISTS "annual_members_select_appointment_slots" ON member_appointment_slots;
+CREATE POLICY "annual_members_select_appointment_slots" ON member_appointment_slots FOR SELECT TO authenticated USING ((status = 'available' AND starts_at > now() AND is_active_member(ARRAY['annual'::text])) OR is_edan_admin());
+DROP POLICY IF EXISTS "admins_insert_appointment_slots" ON member_appointment_slots;
+CREATE POLICY "admins_insert_appointment_slots" ON member_appointment_slots FOR INSERT TO authenticated WITH CHECK (is_edan_admin() AND created_by = auth.uid());
+DROP POLICY IF EXISTS "admins_update_appointment_slots" ON member_appointment_slots;
+CREATE POLICY "admins_update_appointment_slots" ON member_appointment_slots FOR UPDATE TO authenticated USING (is_edan_admin()) WITH CHECK (is_edan_admin());
+DROP POLICY IF EXISTS "admins_delete_appointment_slots" ON member_appointment_slots;
+CREATE POLICY "admins_delete_appointment_slots" ON member_appointment_slots FOR DELETE TO authenticated USING (is_edan_admin());
+
+DROP POLICY IF EXISTS "members_select_own_appointments" ON member_appointments;
+CREATE POLICY "members_select_own_appointments" ON member_appointments FOR SELECT TO authenticated USING (user_id = auth.uid() OR is_edan_admin());
+
+CREATE OR REPLACE FUNCTION get_member_appointment_slots(p_from timestamptz, p_to timestamptz)
+RETURNS TABLE (id uuid, starts_at timestamptz, ends_at timestamptz)
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+BEGIN
+  IF NOT is_active_member(ARRAY['annual'::text]) THEN RAISE EXCEPTION 'Appointment access requires an active annual membership'; END IF;
+  IF p_from IS NULL OR p_to IS NULL OR p_to <= p_from OR p_to - p_from > interval '90 days' THEN RAISE EXCEPTION 'Invalid appointment date range'; END IF;
+  RETURN QUERY SELECT s.id, s.starts_at, s.ends_at
+  FROM member_appointment_slots s
+  WHERE s.status = 'available' AND s.starts_at >= p_from AND s.starts_at < p_to AND s.starts_at > now()
+    AND NOT EXISTS (SELECT 1 FROM member_appointments a WHERE a.slot_id = s.id AND a.status IN ('requested', 'confirmed'))
+  ORDER BY s.starts_at;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION create_member_appointment(p_appointment_type_id uuid, p_slot_id uuid, p_member_name text, p_member_email text, p_whatsapp_number text, p_member_note text)
+RETURNS TABLE (id uuid, booking_reference text, status text, starts_at timestamptz, ends_at timestamptz, appointment_title text)
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE v_slot member_appointment_slots%ROWTYPE; v_type member_appointment_types%ROWTYPE; v_appointment member_appointments%ROWTYPE;
+BEGIN
+  IF NOT is_active_member(ARRAY['annual'::text]) THEN RAISE EXCEPTION 'Appointment access requires an active annual membership'; END IF;
+  IF length(btrim(coalesce(p_member_name, ''))) NOT BETWEEN 1 AND 120 OR length(btrim(coalesce(p_member_email, ''))) NOT BETWEEN 3 AND 254 OR length(coalesce(p_whatsapp_number, '')) > 40 OR length(coalesce(p_member_note, '')) > 2000 THEN RAISE EXCEPTION 'Please check the appointment details'; END IF;
+  SELECT * INTO v_type FROM member_appointment_types WHERE id = p_appointment_type_id AND is_active FOR SHARE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'That appointment type is unavailable'; END IF;
+  SELECT * INTO v_slot FROM member_appointment_slots WHERE id = p_slot_id FOR UPDATE;
+  IF NOT FOUND OR v_slot.status <> 'available' OR v_slot.starts_at <= now() THEN RAISE EXCEPTION 'That time is no longer available'; END IF;
+  IF EXISTS (SELECT 1 FROM member_appointments WHERE slot_id = p_slot_id AND status IN ('requested', 'confirmed')) THEN RAISE EXCEPTION 'That time is no longer available'; END IF;
+  INSERT INTO member_appointments (user_id, appointment_type_id, slot_id, member_name, member_email, whatsapp_number, member_note)
+  VALUES (auth.uid(), p_appointment_type_id, p_slot_id, btrim(p_member_name), lower(btrim(p_member_email)), btrim(coalesce(p_whatsapp_number, '')), btrim(coalesce(p_member_note, '')))
+  RETURNING * INTO v_appointment;
+  RETURN QUERY SELECT v_appointment.id, v_appointment.booking_reference, v_appointment.status, v_slot.starts_at, v_slot.ends_at, v_type.title;
+EXCEPTION WHEN unique_violation THEN RAISE EXCEPTION 'That time is no longer available';
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION admin_create_appointment_slot(p_starts_at timestamptz, p_ends_at timestamptz, p_notes text DEFAULT '')
+RETURNS member_appointment_slots LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE v_slot member_appointment_slots;
+BEGIN
+  IF NOT is_edan_admin() THEN RAISE EXCEPTION 'Not authorized'; END IF;
+  IF p_starts_at IS NULL OR p_ends_at IS NULL OR p_starts_at <= now() OR p_ends_at <= p_starts_at OR p_ends_at - p_starts_at > interval '4 hours' THEN RAISE EXCEPTION 'Please enter a valid future appointment time'; END IF;
+  INSERT INTO member_appointment_slots (starts_at, ends_at, notes, created_by) VALUES (p_starts_at, p_ends_at, btrim(coalesce(p_notes, '')), auth.uid()) RETURNING * INTO v_slot;
+  RETURN v_slot;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION admin_set_appointment_slot_status(p_slot_id uuid, p_status text)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+BEGIN
+  IF NOT is_edan_admin() THEN RAISE EXCEPTION 'Not authorized'; END IF;
+  IF p_status NOT IN ('available', 'blocked') THEN RAISE EXCEPTION 'Invalid slot status'; END IF;
+  UPDATE member_appointment_slots SET status = p_status WHERE id = p_slot_id;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Slot not found'; END IF;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION admin_set_appointment_status(p_appointment_id uuid, p_status text, p_admin_note text DEFAULT '')
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+BEGIN
+  IF NOT is_edan_admin() THEN RAISE EXCEPTION 'Not authorized'; END IF;
+  IF p_status NOT IN ('confirmed', 'declined', 'cancelled', 'completed') THEN RAISE EXCEPTION 'Invalid appointment status'; END IF;
+  UPDATE member_appointments SET status = p_status, admin_note = btrim(coalesce(p_admin_note, '')), updated_at = now(), confirmed_at = CASE WHEN p_status = 'confirmed' THEN coalesce(confirmed_at, now()) ELSE confirmed_at END, completed_at = CASE WHEN p_status = 'completed' THEN coalesce(completed_at, now()) ELSE completed_at END WHERE id = p_appointment_id AND status NOT IN ('declined', 'cancelled', 'completed');
+  IF NOT FOUND THEN RAISE EXCEPTION 'Appointment is unavailable for that change'; END IF;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION get_member_appointment_slots(timestamptz, timestamptz) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION get_member_appointment_slots(timestamptz, timestamptz) TO authenticated;
+REVOKE ALL ON FUNCTION create_member_appointment(uuid, uuid, text, text, text, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION create_member_appointment(uuid, uuid, text, text, text, text) TO authenticated;
+
+CREATE OR REPLACE FUNCTION create_member_appointment(
+  p_appointment_type_id uuid,
+  p_requested_start_at timestamptz,
+  p_member_name text,
+  p_member_email text,
+  p_whatsapp_number text,
+  p_member_note text
+)
+RETURNS TABLE (
+  id uuid,
+  booking_reference text,
+  status text,
+  starts_at timestamptz,
+  ends_at timestamptz,
+  appointment_title text
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_type member_appointment_types%ROWTYPE;
+  v_appointment member_appointments%ROWTYPE;
+BEGIN
+  IF NOT is_active_member(ARRAY['annual'::text]) THEN
+    RAISE EXCEPTION 'Appointment access requires an active annual membership';
+  END IF;
+
+  IF p_requested_start_at IS NULL
+     OR p_requested_start_at <= now()
+     OR p_requested_start_at > now() + interval '180 days'
+     OR length(btrim(coalesce(p_member_name, ''))) NOT BETWEEN 1 AND 120
+     OR length(btrim(coalesce(p_member_email, ''))) NOT BETWEEN 3 AND 254
+     OR length(coalesce(p_whatsapp_number, '')) > 40
+     OR length(coalesce(p_member_note, '')) > 2000 THEN
+    RAISE EXCEPTION 'Please check the appointment details';
+  END IF;
+
+  SELECT * INTO v_type
+  FROM member_appointment_types
+  WHERE id = p_appointment_type_id AND is_active
+  FOR SHARE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'That appointment type is unavailable';
+  END IF;
+
+  INSERT INTO member_appointments (
+    user_id,
+    appointment_type_id,
+    slot_id,
+    requested_start_at,
+    member_name,
+    member_email,
+    whatsapp_number,
+    member_note
+  )
+  VALUES (
+    auth.uid(),
+    p_appointment_type_id,
+    NULL,
+    p_requested_start_at,
+    btrim(p_member_name),
+    lower(btrim(p_member_email)),
+    btrim(coalesce(p_whatsapp_number, '')),
+    btrim(coalesce(p_member_note, ''))
+  )
+  RETURNING * INTO v_appointment;
+
+  RETURN QUERY
+  SELECT
+    v_appointment.id,
+    v_appointment.booking_reference,
+    v_appointment.status,
+    p_requested_start_at,
+    p_requested_start_at + make_interval(mins => v_type.duration_minutes),
+    v_type.title;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION create_member_appointment(uuid, timestamptz, text, text, text, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION create_member_appointment(uuid, timestamptz, text, text, text, text) TO authenticated;
+REVOKE ALL ON FUNCTION admin_create_appointment_slot(timestamptz, timestamptz, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION admin_create_appointment_slot(timestamptz, timestamptz, text) TO authenticated;
+REVOKE ALL ON FUNCTION admin_set_appointment_slot_status(uuid, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION admin_set_appointment_slot_status(uuid, text) TO authenticated;
+REVOKE ALL ON FUNCTION admin_set_appointment_status(uuid, text, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION admin_set_appointment_status(uuid, text, text) TO authenticated;
+
+DROP FUNCTION IF EXISTS admin_dashboard_kpis();
+CREATE FUNCTION admin_dashboard_kpis()
+RETURNS json
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE result json;
+BEGIN
+  IF NOT is_edan_admin() THEN RAISE EXCEPTION 'Not authorized'; END IF;
+  SELECT json_build_object(
+    'active_members', (SELECT count(*) FROM memberships WHERE membership_status = 'active' AND (expires_at IS NULL OR expires_at > now())),
+    'pending_review', (SELECT count(*) FROM membership_applications WHERE status = 'pending'),
+    'expired', (SELECT count(*) FROM memberships WHERE membership_status = 'expired' OR (membership_status = 'active' AND expires_at IS NOT NULL AND expires_at <= now())),
+    'total_bookings', (SELECT count(*) FROM stay_bookings WHERE status IN ('confirmed', 'completed')),
+    'appointments', (SELECT count(*) FROM member_appointments a LEFT JOIN member_appointment_slots s ON s.id = a.slot_id WHERE a.status IN ('requested', 'confirmed') AND COALESCE(s.starts_at, a.requested_start_at) >= now())
   ) INTO result;
   RETURN result;
 END;
