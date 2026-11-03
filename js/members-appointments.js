@@ -41,7 +41,6 @@
 
   let client, currentUser;
   let types  = [];
-  let slots  = [];
   let step   = 0; // 0–4
 
   const PHOTOS = [
@@ -172,12 +171,12 @@
     const firstDate = new Date();
     firstDate.setHours(12, 0, 0, 0);
     const lastDate = new Date(firstDate);
-    lastDate.setDate(lastDate.getDate() + 59);
+    lastDate.setDate(lastDate.getDate() + 179);
     const firstMonth = new Date(firstDate.getFullYear(), firstDate.getMonth(), 1);
     const lastMonth = new Date(lastDate.getFullYear(), lastDate.getMonth(), 1);
     if (!calendarMonth || calendarMonth < firstMonth || calendarMonth > lastMonth) calendarMonth = firstMonth;
 
-    const availableDates = new Set(slots.map(slot => new Date(slot.starts_at).toISOString().slice(0, 10)));
+    const availableDates = new Set();
     const month = calendarMonth.getMonth();
     const year = calendarMonth.getFullYear();
     const monthLabel = new Intl.DateTimeFormat(undefined, { month: "long", year: "numeric" }).format(calendarMonth);
@@ -227,7 +226,7 @@
       button.type = "button";
       button.className = "members__appt-calendar-day";
       button.textContent = String(day);
-      button.disabled = !availableDates.has(value) || date < firstDate || date > lastDate;
+      button.disabled = date < firstDate || date > lastDate;
       button.setAttribute("aria-label", `${dateFormat.format(date)}${button.disabled ? ", unavailable" : ", available"}`);
       button.addEventListener("click", () => {
         dateSelect.value = value;
@@ -236,7 +235,7 @@
         renderTimeSlots();
       });
       grid.append(button);
-      if (availableDates.has(value) && !button.disabled) dateSelect.append(new Option(dateFormat.format(date), value));
+      if (!button.disabled) dateSelect.append(new Option(dateFormat.format(date), value));
     }
 
     calendar.replaceChildren(heading, weekdays, grid);
@@ -247,21 +246,23 @@
     const date = dateSelect?.value || "";
     slotList.replaceChildren();
     slotInput.value = "";
-    slots
-      .filter(s => new Date(s.starts_at).toISOString().slice(0, 10) === date)
-      .forEach(slot => {
+    if (!date) return;
+    for (let hour = 9; hour <= 17; hour += 1) {
+      [0, 30].forEach(minute => {
+        if (hour === 17 && minute === 30) return;
+        const time = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
         const btn = document.createElement("button");
-        btn.type      = "button";
+        btn.type = "button";
         btn.className = "members__appt-slot-btn";
-        btn.textContent = `${timeFormat.format(new Date(slot.starts_at))} – ${timeFormat.format(new Date(slot.ends_at))}`;
-        btn.dataset.slotId = slot.id;
+        btn.textContent = time;
         btn.addEventListener("click", () => {
           slotList.querySelectorAll(".members__appt-slot-btn").forEach(b => b.classList.remove("is-selected"));
           btn.classList.add("is-selected");
-          slotInput.value = slot.id;
+          slotInput.value = `${date}T${time}`;
         });
         slotList.append(btn);
       });
+    }
   }
 
   dateSelect?.addEventListener("change", renderTimeSlots);
@@ -274,7 +275,7 @@
   }
 
   function selectedSlot() {
-    return slotInput?.value ? slots.find(s => s.id === slotInput.value) : null;
+    return slotInput?.value ? { starts_at: new Date(slotInput.value).toISOString() } : null;
   }
 
   function updateReview() {
@@ -309,7 +310,7 @@
 
     const { data, error } = await client.rpc("create_member_appointment", {
       p_appointment_type_id: type.id,
-      p_slot_id:             slot.id,
+      p_requested_start_at:  slot.starts_at,
       p_member_name:         nameInput.value.trim(),
       p_member_email:        emailInput.value.trim(),
       p_whatsapp_number:     whatsInput?.value.trim() || "",
@@ -345,7 +346,17 @@
     form.reset();
     setStatus("");
     goToStep(0);
-    await loadSlots();
+    const session = (await client.auth.getSession()).data.session;
+    if (session) {
+      fetch(`${SUPABASE_URL}/functions/v1/admin-notifications`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ type: "appointment", appointment_id: booking.id }),
+      }).catch(() => {});
+    }
     await loadBookings();
   });
 
@@ -394,12 +405,6 @@
     const from = new Date();
     const to   = new Date(from);
     to.setDate(to.getDate() + 60);
-    const { data, error } = await client.rpc("get_member_appointment_slots", {
-      p_from: from.toISOString(),
-      p_to:   to.toISOString(),
-    });
-    if (error) { setStatus("Available times could not be loaded. Please try again later."); return; }
-    slots = data || [];
     renderDates();
   }
 

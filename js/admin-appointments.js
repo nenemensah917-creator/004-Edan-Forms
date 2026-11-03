@@ -12,7 +12,10 @@ const slotError = document.getElementById("appointmentSlotError");
 const statusLabels = { requested: "Requested", confirmed: "Confirmed", declined: "Declined", cancelled: "Cancelled", completed: "Completed" };
 
 function appointmentLabel(appointment) { return appointment.member_appointment_types?.title || "Appointment"; }
-function appointmentTime(appointment) { return appointment.member_appointment_slots?.starts_at ? formatDate(appointment.member_appointment_slots.starts_at) : "—"; }
+function appointmentTime(appointment) {
+  const startsAt = appointment.requested_start_at || appointment.member_appointment_slots?.starts_at;
+  return startsAt ? formatDate(startsAt) : "—";
+}
 
 function renderAppointmentRow(appointment) {
   const row = createRow([appointment.booking_reference, appointment.member_name, appointmentLabel(appointment), appointmentTime(appointment), statusLabels[appointment.status] || appointment.status], ["Reference", "Member", "Type", "Time", "Status"]);
@@ -38,7 +41,7 @@ function renderSlotRow(slot) {
 
 export async function loadAppointments() {
   const [appointmentsResult, slotsResult] = await Promise.all([
-    supabase.from("member_appointments").select("id, booking_reference, member_name, status, member_appointment_types(title), member_appointment_slots(starts_at, ends_at)").order("created_at", { ascending: false }).limit(100),
+    supabase.from("member_appointments").select("id, booking_reference, member_name, member_email, whatsapp_number, member_note, requested_start_at, status, admin_note, created_at, member_appointment_types(title), member_appointment_slots(starts_at, ends_at)").order("created_at", { ascending: false }).limit(100),
     supabase.from("member_appointment_slots").select("id, starts_at, ends_at, status, notes").gte("starts_at", new Date().toISOString()).order("starts_at").limit(100)
   ]);
   if (appointmentsResult.error || slotsResult.error) {
