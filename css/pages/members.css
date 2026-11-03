@@ -944,8 +944,6 @@
 .members__research-page {
   display: grid;
   gap: clamp(2.5rem, 5vw, 4rem);
-  max-width: 1420px;
-  margin: 0 auto;
 }
 
 .members__research-hero {
@@ -3061,8 +3059,6 @@
 .members__process-page {
   display: grid;
   gap: clamp(2.5rem, 5vw, 4rem);
-  max-width: 1420px;
-  margin: 0 auto;
 }
 
 .members__process-hero {
@@ -3423,8 +3419,6 @@
 .members__gather-page {
   display: grid;
   gap: clamp(2.5rem, 5vw, 4rem);
-  max-width: 1420px;
-  margin: 0 auto;
 }
 
 .members__gather-hero {
@@ -3747,8 +3741,6 @@
 .members__bonus-page {
   display: grid;
   gap: clamp(2.5rem, 5vw, 4rem);
-  max-width: 1420px;
-  margin: 0 auto;
 }
 
 .members__bonus-hero {
