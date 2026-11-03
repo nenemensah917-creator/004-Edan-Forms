@@ -48,6 +48,15 @@ export default defineConfig({
           );
         }
 
+        // Copy CSS files
+        if (existsSync(resolve(root, "css"))) {
+          cpSync(
+            resolve(root, "css"),
+            resolve(root, "dist/css"),
+            { recursive: true }
+          );
+        }
+
         // Copy shared HTML partials
         if (existsSync(resolve(root, "partials"))) {
           cpSync(
