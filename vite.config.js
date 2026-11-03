@@ -65,6 +65,15 @@ export default defineConfig({
             { recursive: true }
           );
         }
+
+        // Copy images
+        if (existsSync(resolve(root, "images"))) {
+          cpSync(
+            resolve(root, "images"),
+            resolve(root, "dist/images"),
+            { recursive: true }
+          );
+        }
       },
     },
   ],
